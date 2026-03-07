@@ -1,7 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { VideoAnalysisResult } from '@/lib/claude';
+import VideoTracker, { VideoTrackerRef } from './components/VideoTracker';
+import VelocityChart from './components/VelocityChart';
+
+interface TrackingData {
+  trajectory: { x: number; y: number; timestamp: number }[];
+  velocityData: { time: number; velocity: number; acceleration: number }[];
+}
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
@@ -11,6 +18,11 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [trackingData, setTrackingData] = useState<TrackingData | null>(null);
+  const [showTracker, setShowTracker] = useState(false);
+  const [analysisStep, setAnalysisStep] = useState<'idle' | 'tracking' | 'analyzing'>('idle');
+  const [currentTime, setCurrentTime] = useState(0);
+  const videoTrackerRef = useRef<VideoTrackerRef>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -46,8 +58,24 @@ export default function Home() {
     setAnalyzing(true);
     setError(null);
     setResult(null);
+    setShowTracker(true); // 自动切换到追踪模式
 
     try {
+      // 步骤 1: 轨迹追踪
+      setAnalysisStep('tracking');
+      console.log('=== 步骤 1: 开始轨迹追踪 ===');
+
+      if (!videoTrackerRef.current) {
+        throw new Error('视频追踪组件未就绪');
+      }
+
+      await videoTrackerRef.current.startTracking();
+      console.log('轨迹追踪完成');
+
+      // 步骤 2: AI 分析
+      setAnalysisStep('analyzing');
+      console.log('=== 步骤 2: 开始 AI 分析 ===');
+
       const formData = new FormData();
       formData.append('video', file);
 
@@ -59,14 +87,17 @@ export default function Home() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || '分析失败');
+        throw new Error(data.error || 'AI 分析失败');
       }
 
       setResult(data.result);
+      console.log('AI 分析完成');
     } catch (err) {
+      console.error('分析失败:', err);
       setError(err instanceof Error ? err.message : '分析失败');
     } finally {
       setAnalyzing(false);
+      setAnalysisStep('idle');
     }
   };
 
@@ -95,10 +126,10 @@ export default function Home() {
         {/* 左侧：视频上传和预览 */}
         <div className="w-1/2 bg-gray-50 dark:bg-gray-900 p-6 flex flex-col overflow-hidden">
           {/* 上传区域 */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-4 flex-shrink-0">
-            <h2 className="text-xl font-semibold mb-4">上传训练视频</h2>
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4 mb-3 flex-shrink-0">
+            <h2 className="text-lg font-semibold mb-3">上传训练视频</h2>
 
-            <div className="mb-4">
+            <div className="mb-3">
               <input
                 type="file"
                 accept="video/mp4,video/quicktime,video/x-msvideo"
@@ -122,32 +153,58 @@ export default function Home() {
               onClick={handleAnalyze}
               disabled={!file || analyzing}
               className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400
-                text-white font-bold py-3 px-4 rounded-lg transition-colors"
+                text-white font-bold py-2 px-4 rounded-lg transition-colors"
             >
-              {analyzing ? '分析中...' : '开始分析'}
+              {analyzing
+                ? analysisStep === 'tracking'
+                  ? '正在追踪杠铃...'
+                  : '正在 AI 分析...'
+                : '开始分析（追踪+AI）'}
             </button>
 
             {error && (
-              <div className="mt-4 p-4 bg-red-100 dark:bg-red-900 text-red-700
-                dark:text-red-300 rounded-lg">
+              <div className="mt-3 p-3 bg-red-100 dark:bg-red-900 text-red-700
+                dark:text-red-300 rounded-lg text-sm">
                 {error}
               </div>
             )}
           </div>
 
-          {/* 视频预览区域 */}
+          {/* 视频预览/追踪区域 */}
           {videoUrl ? (
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4 flex-1 min-h-0 flex flex-col">
-              <h2 className="text-xl font-semibold mb-3 flex-shrink-0">视频预览</h2>
-              <div className="flex-1 min-h-0 bg-black rounded-lg flex items-center justify-center">
-                <video
-                  src={videoUrl}
-                  controls
-                  className="w-full h-full object-contain"
-                  style={{ maxHeight: '100%', maxWidth: '100%' }}
+              <div className="flex justify-between items-center mb-3 flex-shrink-0">
+                <h2 className="text-xl font-semibold">
+                  {showTracker ? '杠铃轨迹追踪' : '视频预览'}
+                </h2>
+                <button
+                  onClick={() => setShowTracker(!showTracker)}
+                  className="text-sm bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg"
                 >
-                  您的浏览器不支持视频播放
-                </video>
+                  {showTracker ? '返回预览' : '追踪杠铃'}
+                </button>
+              </div>
+              <div className="flex-1 min-h-0">
+                {showTracker ? (
+                  <VideoTracker
+                    ref={videoTrackerRef}
+                    videoUrl={videoUrl}
+                    onTrackingComplete={(data) => setTrackingData(data)}
+                    onTrackingStart={() => console.log('追踪开始')}
+                    onTimeUpdate={(time) => setCurrentTime(time)}
+                  />
+                ) : (
+                  <div className="h-full bg-black rounded-lg flex items-center justify-center">
+                    <video
+                      src={videoUrl}
+                      controls
+                      className="w-full h-full object-contain"
+                      style={{ maxHeight: '100%', maxWidth: '100%' }}
+                    >
+                      您的浏览器不支持视频播放
+                    </video>
+                  </div>
+                )}
               </div>
             </div>
           ) : (
@@ -165,11 +222,18 @@ export default function Home() {
         {/* 右侧：分析结果（可滚动） */}
         <div className="w-1/2 bg-white dark:bg-gray-800 overflow-y-auto">
           <div className="p-6">
+            {/* 速度/加速度图表 - 移到最上方 */}
+            {trackingData && trackingData.velocityData.length > 0 && (
+              <div className="mb-6">
+                <VelocityChart data={trackingData.velocityData} currentTime={currentTime} />
+              </div>
+            )}
+
             {/* 分析结果 */}
             {result ? (
               <div>
                 <h2 className="text-2xl font-semibold mb-6 sticky top-0 bg-white dark:bg-gray-800 py-2 z-10">
-                  分析结果
+                  AI 分析结果
                 </h2>
 
                 {/* 基本信息 */}
