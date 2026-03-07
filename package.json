@@ -14,6 +14,7 @@
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@ffprobe-installer/ffprobe": "^2.1.2",
     "@prisma/client": "^6.1.0",
+    "@techstark/opencv-js": "^4.12.0-release.1",
     "fluent-ffmpeg": "^2.1.3",
     "next": "15.1.6",
     "react": "^19.0.0",
