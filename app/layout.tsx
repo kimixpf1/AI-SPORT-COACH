@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "举重教练 - AI视频分析",
-  description: "专业的举重和力量举训练视频分析工具",
+  title: "AI 运动教练",
+  description: "基于 MediaPipe 的健身训练视频分析工具，支持微信手机端和桌面端复盘",
 };
 
 export default function RootLayout({
