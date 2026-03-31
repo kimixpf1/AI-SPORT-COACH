@@ -26,6 +26,17 @@ export interface TrackingMetricSummary {
   averageTorsoLean: number;
 }
 
+export interface CaptureAssessment {
+  angleLabel: string;
+  clarityLabel: string;
+  resolutionLabel: string;
+  confidenceLabel: string;
+  detectedFrameRatio: number;
+  visibilityScore: number;
+  coverageScore: number;
+  warnings: string[];
+}
+
 export interface PoseMetricFrame {
   timestamp: number;
   kneeAngle: number;
@@ -35,6 +46,12 @@ export interface PoseMetricFrame {
   shoulderTilt: number;
   hipTilt: number;
   kneeTrackOffset: number;
+  visibilityScore: number;
+  coverageScore: number;
+  viewRatio: number;
+  faceVisibility: number;
+  centerOffset: number;
+  kneeWidthRatio: number;
 }
 
 export interface TrackingData {
@@ -46,11 +63,13 @@ export interface TrackingData {
   trajectoryLabel: string;
   highlights: TrackingHighlight[];
   metricSummary: TrackingMetricSummary;
+  captureAssessment: CaptureAssessment;
 }
 
 export interface VideoAnalysisResult {
   exerciseType: string;
   analysisMode: string;
+  captureAssessment: CaptureAssessment;
   trajectoryAnalysis: {
     barPath: string;
     keyPoints: string[];

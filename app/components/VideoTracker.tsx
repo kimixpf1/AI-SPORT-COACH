@@ -113,6 +113,8 @@ export default function VideoTracker({
       averageVelocity: averageVelocity.toFixed(0),
       peakVelocity: peakVelocity.toFixed(0),
       label: trackingData.trajectoryLabel,
+      angle: trackingData.captureAssessment.angleLabel,
+      confidence: trackingData.captureAssessment.confidenceLabel,
     };
   }, [trackingData]);
 
@@ -148,10 +150,18 @@ export default function VideoTracker({
       </div>
 
       {summary && (
-        <div className="grid gap-3 rounded-2xl border border-white/10 bg-slate-950/70 p-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 rounded-2xl border border-white/10 bg-slate-950/70 p-4 lg:grid-cols-3 xl:grid-cols-6">
           <div>
             <p className="text-xs text-slate-500">轨迹标签</p>
             <p className="mt-1 text-sm text-slate-200">{summary.label}</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-500">机位判断</p>
+            <p className="mt-1 text-sm text-slate-200">{summary.angle}</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-500">识别可信度</p>
+            <p className="mt-1 text-sm text-slate-200">{summary.confidence}</p>
           </div>
           <div>
             <p className="text-xs text-slate-500">轨迹点数</p>

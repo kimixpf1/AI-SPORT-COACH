@@ -56,7 +56,7 @@ export default function VelocityChart({ data, currentTime = 0 }: VelocityChartPr
           </p>
         </div>
         {summary && (
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-center">
               <p className="text-xs text-slate-500">平均速度</p>
               <p className="mt-1 text-sm font-medium text-slate-100">{summary.averageVelocity.toFixed(0)} px/s</p>
@@ -72,28 +72,26 @@ export default function VelocityChart({ data, currentTime = 0 }: VelocityChartPr
           </div>
         )}
       </div>
-      <div className="mt-5 h-[280px] w-full">
+      <div className="mt-5 h-[240px] w-full sm:h-[280px]">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 20 }}>
+          <LineChart data={chartData} margin={{ top: 5, right: 14, left: 0, bottom: 20 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.2)" />
             <XAxis
               dataKey="time"
               type="number"
               domain={['dataMin', 'dataMax']}
-              label={{ value: '时间 (秒)', position: 'insideBottom', offset: -10 }}
+              label={{ value: '时间', position: 'insideBottom', offset: -10 }}
               stroke="#94a3b8"
               tick={{ fontSize: 12, fill: '#94a3b8' }}
             />
             <YAxis
               yAxisId="left"
-              label={{ value: '速度 (像素/秒)', angle: -90, position: 'insideLeft' }}
               stroke="#22d3ee"
               tick={{ fontSize: 12, fill: '#94a3b8' }}
             />
             <YAxis
               yAxisId="right"
               orientation="right"
-              label={{ value: '加速度 (像素/秒²)', angle: 90, position: 'insideRight' }}
               stroke="#34d399"
               tick={{ fontSize: 12, fill: '#94a3b8' }}
             />

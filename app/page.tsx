@@ -1,6 +1,6 @@
 'use client';
 
-import { ChangeEvent, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import VideoTracker from './components/VideoTracker';
 import VelocityChart from './components/VelocityChart';
 import { ExerciseProfile, HistoryItem, TrackingData, VideoAnalysisResult } from '@/lib/analysis-types';
@@ -18,6 +18,7 @@ const exerciseOptions: Array<{ value: ExerciseProfile; label: string }> = [
 ];
 
 export default function Home() {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [selectedExercise, setSelectedExercise] = useState<ExerciseProfile>('auto');
@@ -90,9 +91,18 @@ export default function Home() {
   };
 
   const handleAnalyze = async () => {
-    if (!file) {
+    const activeFile = file ?? fileInputRef.current?.files?.[0] ?? null;
+
+    if (!activeFile) {
       setError('请先上传训练视频');
       return;
+    }
+
+    if (!file && activeFile) {
+      setFile(activeFile);
+      if (!videoUrl) {
+        setVideoUrl(URL.createObjectURL(activeFile));
+      }
     }
 
     setAnalyzing(true);
@@ -104,7 +114,7 @@ export default function Home() {
 
     try {
       const { result: nextResult, trackingData: nextTrackingData } = await analyzeVideoLocally(
-        file,
+        activeFile,
         selectedExercise,
         (progress, stage) => {
           setAnalysisProgress(progress);
@@ -119,7 +129,7 @@ export default function Home() {
       persistHistory({
         id: crypto.randomUUID(),
         createdAt: new Date().toISOString(),
-        videoFileName: file.name,
+        videoFileName: activeFile.name,
         exerciseType: nextResult.exerciseType,
         overallScore: nextResult.overallScore,
         analysisMode: nextResult.analysisMode,
@@ -176,7 +186,7 @@ export default function Home() {
                 <div>
                   <h2 className="text-xl font-semibold">上传与分析</h2>
                   <p className="mt-2 text-sm text-slate-400">
-                    推荐上传侧前方拍摄、全身和器械完整入镜、单次动作 5-20 秒的视频。
+                    现在支持侧面、侧前方、正面等多种机位，清晰度一般或分辨率较低的视频也会优先尝试输出可参考结果。
                   </p>
                 </div>
                 <button
@@ -191,12 +201,13 @@ export default function Home() {
                 <label className="rounded-2xl border border-dashed border-cyan-400/30 bg-cyan-400/5 p-4">
                   <span className="mb-3 block text-sm font-medium text-cyan-100">训练视频</span>
                   <input
+                    ref={fileInputRef}
                     type="file"
-                    accept="video/mp4,video/quicktime,video/x-msvideo"
+                    accept="video/*,.mp4,.mov,.avi,.m4v,.webm,.3gp,.hevc"
                     onChange={handleFileChange}
                     className="block w-full text-sm text-slate-300 file:mr-4 file:rounded-full file:border-0 file:bg-cyan-400 file:px-4 file:py-2 file:font-medium file:text-slate-950 hover:file:bg-cyan-300"
                   />
-                  <p className="mt-3 text-xs text-slate-400">支持 MP4 / MOV / AVI，建议单个视频控制在 80MB 以内。</p>
+                  <p className="mt-3 text-xs leading-5 text-slate-400">支持手机相册常见视频格式。微信、iPhone、安卓导出的视频只要能被浏览器选中，系统都会优先尝试分析。</p>
                   {file && (
                     <p className="mt-3 text-sm text-slate-200">
                       已选择 {file.name} · {(file.size / 1024 / 1024).toFixed(1)} MB
@@ -225,9 +236,9 @@ export default function Home() {
 
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
                 {[
-                  '微信端建议横屏拍摄，镜头离身体 2-4 米',
-                  '动作开始前预留 1 秒静止画面，识别更稳定',
-                  '深蹲和高翻优先用侧前方视角，卧推优先用侧面视角',
+                  '微信端建议横屏拍摄，镜头离身体 2-4 米，但只要全身大体入镜也可以先分析',
+                  '动作开始前预留 1 秒静止画面，低清或复杂背景下识别会更稳',
+                  '侧面、侧前方、正面都可分析；想看路径更准优先侧前方，想看对称性可用正面',
                 ].map((item) => (
                   <div key={item} className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-slate-300">
                     {item}
@@ -235,11 +246,11 @@ export default function Home() {
                 ))}
               </div>
 
-              <div className="mt-5 space-y-3">
+              <div className="mt-5 space-y-3 sm:space-y-4">
                 <button
                   onClick={handleAnalyze}
-                  disabled={!file || analyzing}
-                  className="w-full rounded-2xl bg-cyan-400 px-4 py-3 text-base font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:text-slate-300"
+                  disabled={analyzing}
+                  className="w-full rounded-2xl bg-cyan-400 px-4 py-3 text-base font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:text-slate-300 sm:py-3.5"
                 >
                   {analyzing ? '正在分析动作视频…' : '开始本地分析'}
                 </button>
@@ -263,6 +274,15 @@ export default function Home() {
                   </div>
                 )}
               </div>
+
+              {(file || videoUrl) && (
+                <div className="mt-4 rounded-2xl border border-cyan-400/20 bg-cyan-500/10 p-4 sm:hidden">
+                  <p className="text-sm font-medium text-cyan-100">手机端快捷操作</p>
+                  <p className="mt-2 text-xs leading-5 text-cyan-50/90">
+                    如果微信里选完视频后按钮仍未变化，直接点上面的“开始本地分析”，系统会再从文件框里读取一次视频。
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="rounded-3xl border border-white/10 bg-slate-900/80 p-5 shadow-xl shadow-black/20">
@@ -344,7 +364,7 @@ export default function Home() {
                   <div>
                     <h2 className="text-xl font-semibold">关键姿态指标</h2>
                     <p className="mt-2 text-sm leading-6 text-slate-400">
-                      当前版本仍以 {trackingData.trajectoryLabel} 作为器械主路径近似，但已经把姿态识别得到的底部深度、前倾控制和速度峰值串到同一套复盘面板里。
+                      当前版本会根据机位和可见性自动切换到更稳的跟踪锚点，尽量在多角度、不同清晰度下继续给出可参考的复盘结论。
                     </p>
                   </div>
                   <div className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-3 py-1 text-xs text-cyan-100">
@@ -361,7 +381,21 @@ export default function Home() {
                   ].map(([label, value]) => (
                     <div key={label} className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
                       <p className="text-sm text-slate-400">{label}</p>
-                      <p className="mt-2 text-2xl font-semibold text-slate-100">{value}</p>
+                      <p className="mt-2 text-xl font-semibold text-slate-100 sm:text-2xl">{value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                  {[
+                    ['拍摄角度', trackingData.captureAssessment.angleLabel],
+                    ['视频清晰度', trackingData.captureAssessment.clarityLabel],
+                    ['视频分辨率', trackingData.captureAssessment.resolutionLabel],
+                    ['识别可信度', trackingData.captureAssessment.confidenceLabel],
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+                      <p className="text-sm text-slate-400">{label}</p>
+                      <p className="mt-2 text-base font-semibold text-slate-100">{value}</p>
                     </div>
                   ))}
                 </div>
@@ -393,6 +427,17 @@ export default function Home() {
                     </div>
                   </div>
                 </div>
+
+                {trackingData.captureAssessment.warnings.length > 0 && (
+                  <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4">
+                    <h3 className="text-lg font-semibold text-amber-100">识别条件提醒</h3>
+                    <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-amber-50">
+                      {trackingData.captureAssessment.warnings.map((warning) => (
+                        <li key={warning}>{warning}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             )}
 
@@ -424,6 +469,23 @@ export default function Home() {
                         <p className="mt-2 text-3xl font-semibold text-cyan-300">{score}/10</p>
                       </div>
                     ))}
+                  </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-slate-950/80 p-4">
+                    <h3 className="text-lg font-semibold">拍摄与识别评估</h3>
+                    <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                      {[
+                        ['机位判断', result.captureAssessment.angleLabel],
+                        ['识别可信度', result.captureAssessment.confidenceLabel],
+                        ['关键点可见性', `${result.captureAssessment.visibilityScore}%`],
+                        ['主体覆盖度', `${result.captureAssessment.coverageScore}%`],
+                      ].map(([label, value]) => (
+                        <div key={label} className="rounded-xl border border-white/10 bg-white/5 p-3">
+                          <p className="text-sm text-slate-400">{label}</p>
+                          <p className="mt-2 text-base font-semibold text-slate-100">{value}</p>
+                        </div>
+                      ))}
+                    </div>
                   </div>
 
                   <div className="rounded-2xl border border-white/10 bg-slate-950/80 p-4">

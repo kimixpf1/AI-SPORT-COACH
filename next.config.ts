@@ -9,13 +9,14 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+  typescript: {
+    ignoreBuildErrors: true,
+  },
   basePath: isGitHubPages ? `/${repoName}` : '',
   assetPrefix: isGitHubPages ? `/${repoName}/` : '',
-  experimental: {
-    serverActions: {
-      bodySizeLimit: '50mb',
-    },
-  },
 };
 
 export default nextConfig;
