@@ -270,7 +270,7 @@ export default function Home() {
                 <div>
                   <h2 className="text-xl font-semibold">视频预览与轨迹叠加</h2>
                   <p className="mt-1 text-sm text-slate-400">
-                    绿色轨迹显示手部中点路径，适合作为杠铃移动趋势的近似参考。
+                    绿色轨迹用于回看动作主路径，结合下方的关键指标与时间线可以更快定位发力问题。
                   </p>
                 </div>
                 {trackingData && (
@@ -336,6 +336,64 @@ export default function Home() {
           <section className="space-y-6">
             {trackingData && trackingData.velocityData.length > 0 && (
               <VelocityChart data={trackingData.velocityData} currentTime={currentTime} />
+            )}
+
+            {trackingData && (
+              <div className="rounded-3xl border border-white/10 bg-slate-900/80 p-5 shadow-xl shadow-black/20">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <h2 className="text-xl font-semibold">关键姿态指标</h2>
+                    <p className="mt-2 text-sm leading-6 text-slate-400">
+                      当前版本仍以 {trackingData.trajectoryLabel} 作为器械主路径近似，但已经把姿态识别得到的底部深度、前倾控制和速度峰值串到同一套复盘面板里。
+                    </p>
+                  </div>
+                  <div className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-3 py-1 text-xs text-cyan-100">
+                    MediaPipe 识别结果
+                  </div>
+                </div>
+
+                <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                  {[
+                    ['峰值速度', `${trackingData.metricSummary.peakVelocity.toFixed(0)} px/s`],
+                    ['峰值加速度', `${trackingData.metricSummary.peakAcceleration.toFixed(0)} px/s²`],
+                    ['垂直位移', `${trackingData.metricSummary.verticalRange.toFixed(0)} px`],
+                    ['平均躯干前倾', `${trackingData.metricSummary.averageTorsoLean.toFixed(0)}°`],
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+                      <p className="text-sm text-slate-400">{label}</p>
+                      <p className="mt-2 text-2xl font-semibold text-slate-100">{value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                  <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+                    <p className="text-sm text-slate-400">前后漂移</p>
+                    <p className="mt-2 text-2xl font-semibold text-slate-100">
+                      {trackingData.metricSummary.horizontalDrift.toFixed(0)} px
+                    </p>
+                    <p className="mt-3 text-sm leading-6 text-slate-400">
+                      数值越小，说明动作主路径越集中；如果中段突然放大，通常需要回看起始站位、核心张力和加速方向。
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+                    <p className="text-sm text-slate-400">动作时间线</p>
+                    <div className="mt-3 space-y-3">
+                      {trackingData.highlights.map((item) => (
+                        <div key={`${item.title}-${item.timestamp}`} className="rounded-xl border border-white/10 bg-white/5 px-3 py-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-sm font-medium text-slate-100">{item.title}</p>
+                            <span className="rounded-full bg-white/10 px-2 py-1 text-xs text-slate-300">
+                              {item.timestamp.toFixed(2)} 秒
+                            </span>
+                          </div>
+                          <p className="mt-2 text-sm leading-6 text-slate-300">{item.detail}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
             )}
 
             <div className="rounded-3xl border border-white/10 bg-slate-900/80 p-5 shadow-xl shadow-black/20">

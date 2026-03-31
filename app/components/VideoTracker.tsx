@@ -106,10 +106,12 @@ export default function VideoTracker({
 
     const averageVelocity =
       trackingData.velocityData.reduce((sum, item) => sum + item.velocity, 0) / trackingData.velocityData.length;
+    const peakVelocity = trackingData.metricSummary.peakVelocity;
 
     return {
       points: trackingData.trajectory.length,
       averageVelocity: averageVelocity.toFixed(0),
+      peakVelocity: peakVelocity.toFixed(0),
       label: trackingData.trajectoryLabel,
     };
   }, [trackingData]);
@@ -146,7 +148,7 @@ export default function VideoTracker({
       </div>
 
       {summary && (
-        <div className="grid gap-3 rounded-2xl border border-white/10 bg-slate-950/70 p-4 sm:grid-cols-3">
+        <div className="grid gap-3 rounded-2xl border border-white/10 bg-slate-950/70 p-4 sm:grid-cols-2 xl:grid-cols-4">
           <div>
             <p className="text-xs text-slate-500">轨迹标签</p>
             <p className="mt-1 text-sm text-slate-200">{summary.label}</p>
@@ -158,6 +160,10 @@ export default function VideoTracker({
           <div>
             <p className="text-xs text-slate-500">平均速度</p>
             <p className="mt-1 text-sm text-slate-200">{summary.averageVelocity} px/s</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-500">峰值速度</p>
+            <p className="mt-1 text-sm text-slate-200">{summary.peakVelocity} px/s</p>
           </div>
         </div>
       )}

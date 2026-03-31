@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import {
   LineChart,
   Line,
@@ -18,59 +19,110 @@ interface VelocityChartProps {
 }
 
 export default function VelocityChart({ data, currentTime = 0 }: VelocityChartProps) {
-  // 格式化数据
-  const chartData = data.map((point) => ({
-    time: point.time.toFixed(2), // 保持字符串格式
-    velocity: parseFloat(point.velocity.toFixed(2)),
-    acceleration: parseFloat(point.acceleration.toFixed(2)),
-  }));
+  const chartData = useMemo(
+    () =>
+      data.map((point) => ({
+        time: Number(point.time.toFixed(2)),
+        velocity: Number(point.velocity.toFixed(2)),
+        acceleration: Number(point.acceleration.toFixed(2)),
+      })),
+    [data]
+  );
+
+  const summary = useMemo(() => {
+    if (chartData.length === 0) {
+      return null;
+    }
+
+    const peakVelocity = chartData.reduce((best, point) => Math.max(best, point.velocity), 0);
+    const peakAcceleration = chartData.reduce((best, point) => Math.max(best, Math.abs(point.acceleration)), 0);
+    const averageVelocity =
+      chartData.reduce((sum, point) => sum + point.velocity, 0) / chartData.length;
+
+    return {
+      peakVelocity,
+      peakAcceleration,
+      averageVelocity,
+    };
+  }, [chartData]);
 
   return (
-    <div className="w-full bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
-      <h3 className="text-xl font-semibold mb-4">速度与加速度分析</h3>
-      <div style={{ width: '100%', height: '200px' }}>
+    <div className="rounded-3xl border border-white/10 bg-slate-900/80 p-5 shadow-xl shadow-black/20">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h3 className="text-xl font-semibold text-slate-50">速度与加速度分析</h3>
+          <p className="mt-2 text-sm leading-6 text-slate-400">
+            结合当前时间线观察发力峰值、节奏切换和减速控制，便于复盘动作的输出窗口。
+          </p>
+        </div>
+        {summary && (
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-center">
+              <p className="text-xs text-slate-500">平均速度</p>
+              <p className="mt-1 text-sm font-medium text-slate-100">{summary.averageVelocity.toFixed(0)} px/s</p>
+            </div>
+            <div className="rounded-2xl border border-cyan-400/20 bg-cyan-500/10 px-4 py-3 text-center">
+              <p className="text-xs text-cyan-200/80">峰值速度</p>
+              <p className="mt-1 text-sm font-medium text-cyan-100">{summary.peakVelocity.toFixed(0)} px/s</p>
+            </div>
+            <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-center">
+              <p className="text-xs text-emerald-200/80">峰值加速度</p>
+              <p className="mt-1 text-sm font-medium text-emerald-100">{summary.peakAcceleration.toFixed(0)} px/s²</p>
+            </div>
+          </div>
+        )}
+      </div>
+      <div className="mt-5 h-[280px] w-full">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 20 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.2)" />
             <XAxis
               dataKey="time"
+              type="number"
+              domain={['dataMin', 'dataMax']}
               label={{ value: '时间 (秒)', position: 'insideBottom', offset: -10 }}
-              tick={{ fontSize: 12 }}
+              stroke="#94a3b8"
+              tick={{ fontSize: 12, fill: '#94a3b8' }}
             />
             <YAxis
               yAxisId="left"
               label={{ value: '速度 (像素/秒)', angle: -90, position: 'insideLeft' }}
-              stroke="#8884d8"
-              tick={{ fontSize: 12 }}
+              stroke="#22d3ee"
+              tick={{ fontSize: 12, fill: '#94a3b8' }}
             />
             <YAxis
               yAxisId="right"
               orientation="right"
               label={{ value: '加速度 (像素/秒²)', angle: 90, position: 'insideRight' }}
-              stroke="#82ca9d"
-              tick={{ fontSize: 12 }}
+              stroke="#34d399"
+              tick={{ fontSize: 12, fill: '#94a3b8' }}
             />
             <Tooltip
+              formatter={(value: number, name: string) => [
+                `${Number(value).toFixed(2)} ${name === '速度' ? 'px/s' : 'px/s²'}`,
+                name,
+              ]}
+              labelFormatter={(value) => `${value} 秒`}
               contentStyle={{
-                backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                border: '1px solid #ccc',
-                borderRadius: '4px',
+                backgroundColor: 'rgba(15, 23, 42, 0.96)',
+                border: '1px solid rgba(148, 163, 184, 0.25)',
+                borderRadius: '12px',
+                color: '#e2e8f0',
               }}
             />
             <Legend
-              wrapperStyle={{ paddingTop: '10px' }}
+              wrapperStyle={{ paddingTop: '10px', color: '#cbd5e1' }}
               iconType="line"
             />
 
-            {/* 当前时间指示线 */}
             {currentTime > 0 && (
               <ReferenceLine
-                x={currentTime.toFixed(2)} // 字符串格式，匹配 chartData 的 time
-                stroke="red"
+                x={Number(currentTime.toFixed(2))}
+                stroke="#f97316"
                 strokeWidth={2}
-                label={{ value: '当前', position: 'top', fill: 'red', fontSize: 12 }}
+                label={{ value: '当前', position: 'top', fill: '#f97316', fontSize: 12 }}
                 strokeDasharray="3 3"
-                yAxisId="left" // 指定 yAxis，避免默认使用不存在的 id "0"
+                yAxisId="left"
               />
             )}
 
@@ -78,7 +130,7 @@ export default function VelocityChart({ data, currentTime = 0 }: VelocityChartPr
               yAxisId="left"
               type="monotone"
               dataKey="velocity"
-              stroke="#8884d8"
+              stroke="#22d3ee"
               strokeWidth={2}
               name="速度"
               dot={false}
@@ -88,7 +140,7 @@ export default function VelocityChart({ data, currentTime = 0 }: VelocityChartPr
               yAxisId="right"
               type="monotone"
               dataKey="acceleration"
-              stroke="#82ca9d"
+              stroke="#34d399"
               strokeWidth={2}
               name="加速度"
               dot={false}

@@ -1,4 +1,4 @@
-import { ExerciseProfile, PoseMetricFrame, TrackingData, TrackingPoint, VideoAnalysisResult } from './analysis-types';
+import { ExerciseProfile, PoseMetricFrame, TrackingData, TrackingHighlight, TrackingPoint, VideoAnalysisResult } from './analysis-types';
 
 type Landmark = {
   x: number;
@@ -384,6 +384,71 @@ function buildPhases(velocityData: TrackingData['velocityData']) {
   });
 }
 
+function getDeepestFrame(metrics: PoseMetricFrame[], exercise: ExerciseProfile) {
+  if (exercise === 'bench_press') {
+    return metrics.reduce((best, frame) => (frame.elbowAngle < best.elbowAngle ? frame : best), metrics[0]);
+  }
+
+  if (exercise === 'deadlift') {
+    return metrics.reduce((best, frame) => (frame.hipAngle < best.hipAngle ? frame : best), metrics[0]);
+  }
+
+  return metrics.reduce((best, frame) => (frame.kneeAngle < best.kneeAngle ? frame : best), metrics[0]);
+}
+
+function buildTrackingHighlights(
+  exercise: ExerciseProfile,
+  metrics: PoseMetricFrame[],
+  velocityData: TrackingData['velocityData'],
+  sampleCount: number,
+  detectedFrames: number
+): TrackingHighlight[] {
+  const deepestFrame = getDeepestFrame(metrics, exercise);
+  const peakVelocityPoint = velocityData.reduce(
+    (best, point) => (point.velocity > best.velocity ? point : best),
+    velocityData[0]
+  );
+  const peakAccelerationPoint = velocityData.reduce(
+    (best, point) => (Math.abs(point.acceleration) > Math.abs(best.acceleration) ? point : best),
+    velocityData[0]
+  );
+  const torsoLeanPeak = metrics.reduce(
+    (best, frame) => (frame.torsoLean > best.torsoLean ? frame : best),
+    metrics[0]
+  );
+
+  const bottomDetailByExercise: Record<Exclude<ExerciseProfile, 'auto'>, string> = {
+    squat: `下蹲最深点膝角约 ${round(deepestFrame.kneeAngle, 0)}°，可以据此回看底部稳定性。`,
+    clean: `接杠前后膝角最低约 ${round(deepestFrame.kneeAngle, 0)}°，适合重点复盘二次发力到接杠转换。`,
+    deadlift: `起拉准备阶段髋角最低约 ${round(deepestFrame.hipAngle, 0)}°，可重点观察后链预紧是否充分。`,
+    bench_press: `下放最深处肘角约 ${round(deepestFrame.elbowAngle, 0)}°，适合回看触胸深度与肩胛稳定。`,
+    other: `动作幅度最低点出现在这一刻，适合结合视频判断底部控制与重心位置。`,
+  };
+
+  return [
+    {
+      title: '最低幅度',
+      timestamp: deepestFrame.timestamp,
+      detail: bottomDetailByExercise[exercise === 'auto' ? 'other' : exercise],
+    },
+    {
+      title: '峰值速度',
+      timestamp: peakVelocityPoint.time,
+      detail: `主发力峰值速度约 ${round(peakVelocityPoint.velocity, 0)} px/s，适合回看加速时序是否集中。`,
+    },
+    {
+      title: '节奏冲击',
+      timestamp: peakAccelerationPoint.time,
+      detail: `该时刻加速度变化约 ${round(peakAccelerationPoint.acceleration, 0)} px/s²，能帮助判断转换是否顺滑。`,
+    },
+    {
+      title: '姿态稳定',
+      timestamp: torsoLeanPeak.timestamp,
+      detail: `最大躯干前倾约 ${round(torsoLeanPeak.torsoLean, 0)}°，本次共识别 ${detectedFrames}/${sampleCount} 帧有效姿态。`,
+    },
+  ];
+}
+
 export async function analyzeVideoLocally(
   file: File,
   selectedExercise: ExerciseProfile,
@@ -440,8 +505,14 @@ export async function analyzeVideoLocally(
     const avgKneeTrack = average(metricFrames.map((frame) => frame.kneeTrackOffset));
     const avgTorsoLean = average(metricFrames.map((frame) => frame.torsoLean));
     const horizontalDrift = Math.max(...trajectory.map((point) => point.x)) - Math.min(...trajectory.map((point) => point.x));
+    const verticalRange = Math.max(...trajectory.map((point) => point.y)) - Math.min(...trajectory.map((point) => point.y));
     const smoothness = average(
       velocityData.slice(1).map((point, index) => Math.abs(point.acceleration - velocityData[index].acceleration))
+    );
+    const peakVelocity = velocityData.reduce((best, point) => Math.max(best, point.velocity), 0);
+    const peakAcceleration = velocityData.reduce(
+      (best, point) => Math.max(best, Math.abs(point.acceleration)),
+      0
     );
 
     const stabilityScore = clamp(
@@ -554,6 +625,14 @@ export async function analyzeVideoLocally(
         sampleCount: SAMPLE_COUNT,
         detectedFrames: metricFrames.length,
         trajectoryLabel: exercise === 'bench_press' ? '杠铃手部中点轨迹' : '手部中点轨迹',
+        highlights: buildTrackingHighlights(exercise, metricFrames, velocityData, SAMPLE_COUNT, metricFrames.length),
+        metricSummary: {
+          peakVelocity,
+          peakAcceleration,
+          verticalRange,
+          horizontalDrift,
+          averageTorsoLean: avgTorsoLean,
+        },
       },
     };
   } finally {

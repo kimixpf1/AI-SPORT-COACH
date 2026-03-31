@@ -12,6 +12,20 @@ export interface VelocityPoint {
   acceleration: number;
 }
 
+export interface TrackingHighlight {
+  title: string;
+  timestamp: number;
+  detail: string;
+}
+
+export interface TrackingMetricSummary {
+  peakVelocity: number;
+  peakAcceleration: number;
+  verticalRange: number;
+  horizontalDrift: number;
+  averageTorsoLean: number;
+}
+
 export interface PoseMetricFrame {
   timestamp: number;
   kneeAngle: number;
@@ -30,6 +44,8 @@ export interface TrackingData {
   sampleCount: number;
   detectedFrames: number;
   trajectoryLabel: string;
+  highlights: TrackingHighlight[];
+  metricSummary: TrackingMetricSummary;
 }
 
 export interface VideoAnalysisResult {
