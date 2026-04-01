@@ -8,6 +8,7 @@ import { analyzeVideoLocally } from '@/lib/pose-analysis';
 
 const STORAGE_KEY = 'ai-sport-coach-history';
 const VIDEO_INPUT_ID = 'training-video-input';
+const EXERCISE_SELECT_ID = 'exercise-profile-select';
 
 const exerciseOptions: Array<{ value: ExerciseProfile; label: string }> = [
   { value: 'auto', label: '自动识别' },
@@ -17,6 +18,84 @@ const exerciseOptions: Array<{ value: ExerciseProfile; label: string }> = [
   { value: 'deadlift', label: '硬拉' },
   { value: 'other', label: '其他力量动作' },
 ];
+
+function normalizeHistoryItem(value: unknown): HistoryItem | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const item = value as Partial<HistoryItem>;
+
+  if (typeof item.videoFileName !== 'string' || typeof item.exerciseType !== 'string') {
+    return null;
+  }
+
+  return {
+    id: typeof item.id === 'string' && item.id.length > 0 ? item.id : createHistoryId(),
+    createdAt:
+      typeof item.createdAt === 'string' && item.createdAt.length > 0 ? item.createdAt : new Date().toISOString(),
+    videoFileName: item.videoFileName,
+    exerciseType: item.exerciseType,
+    overallScore: typeof item.overallScore === 'number' ? item.overallScore : 0,
+    analysisMode: typeof item.analysisMode === 'string' ? item.analysisMode : 'MediaPipe 本地分析',
+    suggestions: Array.isArray(item.suggestions)
+      ? item.suggestions.filter((entry): entry is string => typeof entry === 'string')
+      : [],
+  };
+}
+
+function readStoredHistory() {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+
+  const saved = window.localStorage.getItem(STORAGE_KEY);
+
+  if (!saved) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(saved);
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map((item) => normalizeHistoryItem(item))
+      .filter((item): item is HistoryItem => Boolean(item))
+      .slice(0, 12);
+  } catch {
+    return [];
+  }
+}
+
+function createHistoryId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  return `history-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function getAnalysisErrorMessage(error: unknown) {
+  if (!(error instanceof Error)) {
+    return '分析失败，请更换更清晰的视频重试';
+  }
+
+  const message = error.message;
+
+  if (message.includes('ROI width and height must be > 0')) {
+    return '当前视频部分抽帧在解码阶段出现异常，系统已跳过无效帧。请重新尝试分析；如果仍失败，建议优先使用原始导出视频或避免在视频首尾裁切得过短。';
+  }
+
+  if (message.includes('client-side exception')) {
+    return '分析结果渲染时发生异常，请刷新页面后重试。';
+  }
+
+  return message;
+}
 
 export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -34,20 +113,7 @@ export default function Home() {
   const [currentTime, setCurrentTime] = useState(0);
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    const saved = window.localStorage.getItem(STORAGE_KEY);
-    if (!saved) {
-      return;
-    }
-
-    try {
-      setHistory(JSON.parse(saved) as HistoryItem[]);
-    } catch {
-      setHistory([]);
-    }
+    setHistory(readStoredHistory());
   }, []);
 
   useEffect(() => {
@@ -98,12 +164,17 @@ export default function Home() {
   };
 
   const persistHistory = (nextItem: HistoryItem) => {
-    const nextHistory = [nextItem, ...history].slice(0, 12);
-    setHistory(nextHistory);
+    try {
+      const nextHistory = [nextItem, ...history]
+        .map((item) => normalizeHistoryItem(item))
+        .filter((item): item is HistoryItem => Boolean(item))
+        .slice(0, 12);
+      setHistory(nextHistory);
 
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextHistory));
-    }
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextHistory));
+      }
+    } catch {}
   };
 
   const handleAnalyze = async () => {
@@ -143,7 +214,7 @@ export default function Home() {
       setShowHistory(true);
 
       persistHistory({
-        id: crypto.randomUUID(),
+        id: createHistoryId(),
         createdAt: new Date().toISOString(),
         videoFileName: activeFile.name,
         exerciseType: nextResult.exerciseType,
@@ -155,7 +226,7 @@ export default function Home() {
       setAnalysisStage('分析完成，可以复盘图表和建议');
       setAnalysisProgress(100);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '分析失败，请更换更清晰的视频重试');
+      setError(getAnalysisErrorMessage(err));
       setAnalysisStage('分析失败，请重新上传或调整拍摄角度');
     } finally {
       setAnalyzing(false);
@@ -172,52 +243,37 @@ export default function Home() {
 
       <div className="relative mx-auto flex max-w-[1480px] flex-col gap-6 px-4 py-5 sm:px-6 lg:px-8">
         <header className="rounded-[32px] border border-white/10 bg-[linear-gradient(135deg,rgba(15,23,42,0.96),rgba(10,16,32,0.94),rgba(29,78,216,0.24))] p-6 shadow-[0_24px_80px_rgba(2,6,23,0.45)] sm:p-7">
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_390px] xl:items-end">
-            <div className="space-y-4">
+          <div className="space-y-5">
+            <div className="space-y-3">
               <span className="inline-flex w-fit rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1 text-xs font-medium tracking-[0.18em] text-cyan-200 uppercase">
                 Motion Analysis Studio
               </span>
-              <div className="space-y-3">
-                <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl xl:text-[2.65rem]">
-                  AI 运动教练
-                </h1>
-                <p className="max-w-4xl text-sm leading-7 text-slate-300 sm:text-base">
-                  面向桌面端与手机端的专业训练视频分析工作台。上传深蹲、卧推、高翻、硬拉等动作视频后，系统会在浏览器内完成姿态识别、轨迹复盘、速度节奏评估与针对性建议输出。
-                </p>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                {[
-                  ['运行模式', 'MediaPipe 本地分析'],
-                  ['机位覆盖', '正面 / 侧面 / 侧后方 / 后方'],
-                  ['终端兼容', '微信手机端 + 电脑端'],
-                  ['当前动作', selectedExerciseLabel],
-                ].map(([label, value]) => (
-                  <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-4 backdrop-blur">
-                    <p className="text-xs uppercase tracking-[0.16em] text-slate-500">{label}</p>
-                    <p className="mt-2 text-sm font-medium text-slate-100 sm:text-base">{value}</p>
-                  </div>
-                ))}
-              </div>
+              <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl xl:text-[2.65rem]">
+                AI 运动教练
+              </h1>
+              <p className="max-w-5xl text-sm leading-7 text-slate-300 sm:text-base">
+                参考专业动作分析工作台重构界面后，桌面端优先采用清晰的双列大模块布局，手机端保持连续纵向阅读。上传真实训练视频后，系统会输出姿态识别、轨迹复盘、速度节奏和训练建议。
+              </p>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-2">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               {[
+                ['运行模式', 'MediaPipe 本地分析'],
+                ['机位覆盖', '正面 / 侧面 / 侧后方 / 后方'],
                 ['上传状态', file ? '视频已就绪' : '等待上传'],
-                ['分析进度', `${analysisProgress}%`],
-                ['输出结论', result ? `${result.overallScore}/10` : '待生成'],
-                ['历史记录', `${latestHistory.length} 条`],
+                ['当前动作', selectedExerciseLabel],
               ].map(([label, value]) => (
-                <div key={label} className="rounded-3xl border border-white/10 bg-slate-950/55 px-4 py-5">
+                <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-4 backdrop-blur">
                   <p className="text-xs uppercase tracking-[0.16em] text-slate-500">{label}</p>
-                  <p className="mt-3 text-2xl font-semibold text-white">{value}</p>
+                  <p className="mt-2 text-sm font-medium text-slate-100 sm:text-base">{value}</p>
                 </div>
               ))}
             </div>
           </div>
         </header>
 
-        <div className="grid gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">
-          <section className="space-y-6 xl:sticky xl:top-6 xl:self-start">
+        <div className="grid gap-6 xl:grid-cols-[minmax(360px,430px)_minmax(0,1fr)]">
+          <section className="space-y-6">
             <div className="rounded-[30px] border border-white/10 bg-slate-900/80 p-5 shadow-[0_20px_70px_rgba(2,6,23,0.35)] backdrop-blur">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
@@ -229,7 +285,7 @@ export default function Home() {
                 </div>
                 <button
                   onClick={() => setShowHistory((value) => !value)}
-                  className="inline-flex items-center justify-center rounded-full border border-white/15 bg-white/[0.03] px-4 py-2 text-sm text-slate-200 transition hover:border-cyan-400/40 hover:bg-white/[0.06]"
+                  className="inline-flex items-center justify-center whitespace-nowrap rounded-full border border-white/15 bg-white/[0.03] px-4 py-2 text-sm text-slate-200 transition hover:border-cyan-400/40 hover:bg-white/[0.06]"
                 >
                   {showHistory ? '收起历史' : '查看历史'}
                 </button>
@@ -263,13 +319,13 @@ export default function Home() {
                     type="button"
                     onClick={handlePickVideo}
                     disabled={analyzing}
-                    className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-cyan-400 px-4 py-3 text-sm font-semibold text-slate-950 shadow-[0_12px_30px_rgba(34,211,238,0.28)] transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300"
+                    className="inline-flex min-h-12 items-center justify-center whitespace-nowrap rounded-2xl bg-cyan-400 px-4 py-3 text-sm font-semibold text-slate-950 shadow-[0_12px_30px_rgba(34,211,238,0.28)] transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300"
                   >
                     选择视频
                   </button>
                   <label
                     htmlFor={VIDEO_INPUT_ID}
-                    className="flex min-h-12 cursor-pointer items-center justify-center rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm font-medium text-slate-200 transition hover:border-cyan-400/30 hover:bg-slate-950"
+                    className="flex min-h-12 cursor-pointer items-center justify-center whitespace-nowrap rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm font-medium text-slate-200 transition hover:border-cyan-400/30 hover:bg-slate-950"
                   >
                     微信端上传入口
                   </label>
@@ -305,6 +361,8 @@ export default function Home() {
                 <label className="block">
                   <span className="mb-3 block text-sm font-medium text-slate-100">动作类型</span>
                   <select
+                    id={EXERCISE_SELECT_ID}
+                    name="exercise-profile"
                     value={selectedExercise}
                     onChange={(event) => setSelectedExercise(event.target.value as ExerciseProfile)}
                     className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-cyan-400/40"
@@ -333,7 +391,7 @@ export default function Home() {
                 <button
                   onClick={handleAnalyze}
                   disabled={analyzing}
-                  className="w-full rounded-[22px] bg-gradient-to-r from-cyan-400 via-sky-400 to-indigo-400 px-4 py-3.5 text-base font-semibold text-slate-950 shadow-[0_18px_45px_rgba(34,211,238,0.25)] transition hover:translate-y-[-1px] hover:from-cyan-300 hover:to-indigo-300 disabled:cursor-not-allowed disabled:from-slate-700 disabled:via-slate-700 disabled:to-slate-700 disabled:text-slate-300"
+                  className="w-full whitespace-nowrap rounded-[22px] bg-gradient-to-r from-cyan-400 via-sky-400 to-indigo-400 px-4 py-3.5 text-base font-semibold text-slate-950 shadow-[0_18px_45px_rgba(34,211,238,0.25)] transition hover:translate-y-[-1px] hover:from-cyan-300 hover:to-indigo-300 disabled:cursor-not-allowed disabled:from-slate-700 disabled:via-slate-700 disabled:to-slate-700 disabled:text-slate-300"
                 >
                   {analyzing ? '正在分析动作视频…' : '开始本地分析'}
                 </button>
@@ -399,7 +457,7 @@ export default function Home() {
                             <p className="text-xs text-slate-400">{item.analysisMode}</p>
                           </div>
                         </div>
-                        {item.suggestions[0] && (
+                        {item.suggestions?.[0] && (
                           <p className="mt-3 text-sm leading-6 text-slate-300">下次优先改进：{item.suggestions[0]}</p>
                         )}
                       </div>
@@ -542,52 +600,52 @@ export default function Home() {
 
             <div className="rounded-[30px] border border-white/10 bg-slate-900/80 p-5 shadow-[0_20px_70px_rgba(2,6,23,0.35)] backdrop-blur">
               {result ? (
-                <div className="space-y-5">
-                  <div className="rounded-[24px] border border-white/10 bg-slate-950/80 p-4 sm:p-5">
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Result Summary</p>
-                        <p className="mt-2 text-2xl font-semibold text-slate-50">{result.exerciseType}</p>
-                        <p className="mt-2 text-sm text-cyan-300">{result.analysisMode}</p>
-                      </div>
-                      <div className="rounded-[24px] border border-emerald-400/20 bg-emerald-500/10 px-6 py-5 text-center">
-                        <p className="text-sm text-emerald-200">综合评分</p>
-                        <p className="mt-1 text-4xl font-semibold text-emerald-300">{result.overallScore}</p>
+                <div className="grid gap-5 xl:grid-cols-2">
+                  <div className="space-y-5">
+                    <div className="rounded-[24px] border border-white/10 bg-slate-950/80 p-4 sm:p-5">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Result Summary</p>
+                          <p className="mt-2 text-2xl font-semibold text-slate-50">{result.exerciseType}</p>
+                          <p className="mt-2 text-sm text-cyan-300">{result.analysisMode}</p>
+                        </div>
+                        <div className="rounded-[24px] border border-emerald-400/20 bg-emerald-500/10 px-6 py-5 text-center">
+                          <p className="text-sm text-emerald-200">综合评分</p>
+                          <p className="mt-1 text-4xl font-semibold text-emerald-300">{result.overallScore}</p>
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <div className="grid gap-4 sm:grid-cols-3">
-                    {[
-                      ['稳定性', result.postureAnalysis.stability.score],
-                      ['动作幅度', result.postureAnalysis.rangeOfMotion.score],
-                      ['身体对齐', result.postureAnalysis.bodyAlignment.score],
-                    ].map(([label, score]) => (
-                      <div key={label} className="rounded-[22px] border border-white/10 bg-slate-950/80 p-4">
-                        <p className="text-sm text-slate-400">{label}</p>
-                        <p className="mt-2 text-3xl font-semibold text-cyan-300">{score}/10</p>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="rounded-[24px] border border-white/10 bg-slate-950/80 p-4">
-                    <h3 className="text-lg font-semibold text-white">拍摄与识别评估</h3>
-                    <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                    <div className="grid gap-4 sm:grid-cols-3">
                       {[
-                        ['机位判断', result.captureAssessment.angleLabel],
-                        ['识别可信度', result.captureAssessment.confidenceLabel],
-                        ['关键点可见性', `${result.captureAssessment.visibilityScore}%`],
-                        ['主体覆盖度', `${result.captureAssessment.coverageScore}%`],
-                      ].map(([label, value]) => (
-                        <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                        ['稳定性', result.postureAnalysis.stability.score],
+                        ['动作幅度', result.postureAnalysis.rangeOfMotion.score],
+                        ['身体对齐', result.postureAnalysis.bodyAlignment.score],
+                      ].map(([label, score]) => (
+                        <div key={label} className="rounded-[22px] border border-white/10 bg-slate-950/80 p-4">
                           <p className="text-sm text-slate-400">{label}</p>
-                          <p className="mt-2 text-base font-semibold text-slate-100">{value}</p>
+                          <p className="mt-2 text-3xl font-semibold text-cyan-300">{score}/10</p>
                         </div>
                       ))}
                     </div>
-                  </div>
 
-                  <div className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+                    <div className="rounded-[24px] border border-white/10 bg-slate-950/80 p-4">
+                      <h3 className="text-lg font-semibold text-white">拍摄与识别评估</h3>
+                      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                        {[
+                          ['机位判断', result.captureAssessment.angleLabel],
+                          ['识别可信度', result.captureAssessment.confidenceLabel],
+                          ['关键点可见性', `${result.captureAssessment.visibilityScore}%`],
+                          ['主体覆盖度', `${result.captureAssessment.coverageScore}%`],
+                        ].map(([label, value]) => (
+                          <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                            <p className="text-sm text-slate-400">{label}</p>
+                            <p className="mt-2 text-base font-semibold text-slate-100">{value}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
                     <div className="space-y-4 rounded-[24px] border border-white/10 bg-slate-950/80 p-4">
                       <h3 className="text-lg font-semibold text-white">轨迹分析</h3>
                       <p className="text-sm leading-6 text-slate-300">{result.trajectoryAnalysis.barPath}</p>
@@ -600,7 +658,9 @@ export default function Home() {
                       </div>
                       <p className="text-sm leading-6 text-slate-400">{result.trajectoryAnalysis.deviations}</p>
                     </div>
+                  </div>
 
+                  <div className="space-y-5">
                     <div className="space-y-4 rounded-[24px] border border-white/10 bg-slate-950/80 p-4">
                       <h3 className="text-lg font-semibold text-white">速度与节奏</h3>
                       <div className="space-y-3">
@@ -614,9 +674,7 @@ export default function Home() {
                       </div>
                       <p className="text-sm leading-6 text-slate-300">{result.velocityAnalysis.criticalMoments}</p>
                     </div>
-                  </div>
 
-                  <div className="grid gap-4 xl:grid-cols-[minmax(0,1.02fr)_minmax(0,0.98fr)]">
                     <div className="rounded-[24px] border border-white/10 bg-slate-950/80 p-4">
                       <h3 className="text-lg font-semibold text-white">姿态重点</h3>
                       <div className="mt-4 grid gap-4">
@@ -647,33 +705,33 @@ export default function Home() {
                       </div>
                     </div>
 
-                    <div className="space-y-4">
-                      <div className="rounded-[24px] border border-emerald-400/20 bg-emerald-500/10 p-4">
-                        <h3 className="text-lg font-semibold text-emerald-200">当前做得好的地方</h3>
-                        <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6 text-emerald-100">
-                          {result.strengths.map((strength) => (
-                            <li key={strength}>{strength}</li>
-                          ))}
-                        </ul>
-                      </div>
-                      <div className="rounded-[24px] border border-rose-400/20 bg-rose-500/10 p-4">
-                        <h3 className="text-lg font-semibold text-rose-200">潜在风险提醒</h3>
-                        <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6 text-rose-100">
-                          {result.risks.length > 0 ? (
-                            result.risks.map((risk) => <li key={risk}>{risk}</li>)
-                          ) : (
-                            <li>当前视频里没有看到明显的高风险代偿，但仍建议循序渐进加重。</li>
-                          )}
-                        </ul>
-                      </div>
-                      <div className="rounded-[24px] border border-cyan-400/20 bg-cyan-500/10 p-4">
-                        <h3 className="text-lg font-semibold text-cyan-100">下一步训练建议</h3>
-                        <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm leading-6 text-cyan-50">
-                          {result.suggestions.map((suggestion) => (
-                            <li key={suggestion}>{suggestion}</li>
-                          ))}
-                        </ol>
-                      </div>
+                    <div className="rounded-[24px] border border-emerald-400/20 bg-emerald-500/10 p-4">
+                      <h3 className="text-lg font-semibold text-emerald-200">当前做得好的地方</h3>
+                      <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6 text-emerald-100">
+                        {result.strengths.map((strength) => (
+                          <li key={strength}>{strength}</li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    <div className="rounded-[24px] border border-rose-400/20 bg-rose-500/10 p-4">
+                      <h3 className="text-lg font-semibold text-rose-200">潜在风险提醒</h3>
+                      <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6 text-rose-100">
+                        {result.risks.length > 0 ? (
+                          result.risks.map((risk) => <li key={risk}>{risk}</li>)
+                        ) : (
+                          <li>当前视频里没有看到明显的高风险代偿，但仍建议循序渐进加重。</li>
+                        )}
+                      </ul>
+                    </div>
+
+                    <div className="rounded-[24px] border border-cyan-400/20 bg-cyan-500/10 p-4">
+                      <h3 className="text-lg font-semibold text-cyan-100">下一步训练建议</h3>
+                      <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm leading-6 text-cyan-50">
+                        {result.suggestions.map((suggestion) => (
+                          <li key={suggestion}>{suggestion}</li>
+                        ))}
+                      </ol>
                     </div>
                   </div>
                 </div>
@@ -694,4 +752,3 @@ export default function Home() {
     </div>
   );
 }
-

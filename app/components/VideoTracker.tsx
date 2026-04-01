@@ -12,6 +12,19 @@ interface VideoTrackerProps {
   onTimeUpdate?: (time: number) => void;
 }
 
+const OVERLAY_EDGE_LIMIT = 1280;
+
+function getOverlaySize(width: number, height: number) {
+  const scale = Math.min(1, OVERLAY_EDGE_LIMIT / Math.max(width, height, 1));
+
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+    scaleX: Math.max(1, Math.round(width * scale)) / Math.max(width, 1),
+    scaleY: Math.max(1, Math.round(height * scale)) / Math.max(height, 1),
+  };
+}
+
 export default function VideoTracker({
   videoUrl,
   trackingData,
@@ -23,6 +36,7 @@ export default function VideoTracker({
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [currentTime, setCurrentTime] = useState(0);
+  const [overlayScale, setOverlayScale] = useState({ scaleX: 1, scaleY: 1 });
 
   useEffect(() => {
     const video = videoRef.current;
@@ -33,11 +47,19 @@ export default function VideoTracker({
     }
 
     const handleLoadedMetadata = () => {
-      canvas.width = video.videoWidth || 1280;
-      canvas.height = video.videoHeight || 720;
+      const overlaySize = getOverlaySize(video.videoWidth || 1280, video.videoHeight || 720);
+      canvas.width = overlaySize.width;
+      canvas.height = overlaySize.height;
+      setOverlayScale({
+        scaleX: overlaySize.scaleX,
+        scaleY: overlaySize.scaleY,
+      });
     };
 
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
+    if (video.readyState >= 1) {
+      handleLoadedMetadata();
+    }
     return () => {
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
     };
@@ -81,13 +103,18 @@ export default function VideoTracker({
       return;
     }
 
+    const sourceWidth = canvas.width || 1;
+    const sourceHeight = canvas.height || 1;
+    const scaleX = overlayScale.scaleX;
+    const scaleY = overlayScale.scaleY;
+
     ctx.strokeStyle = '#22c55e';
-    ctx.lineWidth = 4;
+    ctx.lineWidth = Math.max(2, Math.round(Math.min(sourceWidth, sourceHeight) / 220));
     ctx.beginPath();
-    ctx.moveTo(visiblePoints[0].x, visiblePoints[0].y);
+    ctx.moveTo(visiblePoints[0].x * scaleX, visiblePoints[0].y * scaleY);
 
     visiblePoints.slice(1).forEach((point) => {
-      ctx.lineTo(point.x, point.y);
+      ctx.lineTo(point.x * scaleX, point.y * scaleY);
     });
 
     ctx.stroke();
@@ -95,9 +122,15 @@ export default function VideoTracker({
     const activePoint = visiblePoints[visiblePoints.length - 1];
     ctx.fillStyle = '#f97316';
     ctx.beginPath();
-    ctx.arc(activePoint.x, activePoint.y, 8, 0, Math.PI * 2);
+    ctx.arc(
+      activePoint.x * scaleX,
+      activePoint.y * scaleY,
+      Math.max(5, Math.round(Math.min(sourceWidth, sourceHeight) / 160)),
+      0,
+      Math.PI * 2
+    );
     ctx.fill();
-  }, [currentTime, trackingData]);
+  }, [currentTime, overlayScale, trackingData]);
 
   const summary = useMemo(() => {
     if (!trackingData || trackingData.velocityData.length === 0) {

@@ -25,6 +25,9 @@ type TrackingAnchor = {
 const MIN_SAMPLE_COUNT = 20;
 const MAX_SAMPLE_COUNT = 36;
 const MIN_VALID_FRAMES = 4;
+const ANALYSIS_EDGE_LIMIT = 1280;
+const SEEK_EPSILON_SECONDS = 0.05;
+const SAMPLE_TIME_OFFSETS = [0, -0.04, 0.04, -0.08, 0.08];
 
 const EXERCISE_LABELS: Record<ExerciseProfile, string> = {
   auto: '自动识别',
@@ -42,6 +45,13 @@ type SamplingAttempt = {
   trimStartRatio: number;
   trimEndRatio: number;
   stageLabel: string;
+};
+
+type AnalysisSurface = {
+  canvas: HTMLCanvasElement;
+  context: CanvasRenderingContext2D;
+  width: number;
+  height: number;
 };
 
 function midpoint(a: Landmark, b: Landmark): Landmark {
@@ -263,37 +273,22 @@ function getMediaPipeRuntimeCandidates() {
   const publicBasePath = getPublicAssetBasePath();
 
   return [
-    'https://unpkg.com/@mediapipe/tasks-vision@0.10.22/wasm',
+    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm',
     `${publicBasePath}/mediapipe`,
     'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm',
   ];
 }
 
 async function createPoseLandmarker(vision: any, fileset: any) {
-  const baseOptions = {
-    modelAssetPath:
-      'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task',
-  };
-
-  try {
-    return await vision.PoseLandmarker.createFromOptions(fileset, {
-      baseOptions: {
-        ...baseOptions,
-        delegate: 'GPU',
-      },
-      runningMode: 'VIDEO',
-      numPoses: 1,
-    });
-  } catch {
-    return vision.PoseLandmarker.createFromOptions(fileset, {
-      baseOptions: {
-        ...baseOptions,
-        delegate: 'CPU',
-      },
-      runningMode: 'VIDEO',
-      numPoses: 1,
-    });
-  }
+  return vision.PoseLandmarker.createFromOptions(fileset, {
+    baseOptions: {
+      modelAssetPath:
+        'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task',
+      delegate: 'CPU',
+    },
+    runningMode: 'VIDEO',
+    numPoses: 1,
+  });
 }
 
 async function loadPoseLandmarker() {
@@ -349,10 +344,102 @@ function getSamplingAttempts(duration: number): SamplingAttempt[] {
 }
 
 function getAttemptTimeRange(duration: number, attempt: SamplingAttempt) {
-  const startTime = clamp(duration * attempt.trimStartRatio, 0, Math.max(duration - 0.2, 0));
-  const endTime = clamp(duration * (1 - attempt.trimEndRatio), startTime + 0.2, duration);
+  const safeEnd = Math.max(duration - SEEK_EPSILON_SECONDS, 0);
+  const startTime = clamp(duration * attempt.trimStartRatio, 0, Math.max(safeEnd - 0.2, 0));
+  const endTime = clamp(duration * (1 - attempt.trimEndRatio), startTime + 0.2, safeEnd);
 
   return { startTime, endTime };
+}
+
+function createAnalysisSurface(width: number, height: number): AnalysisSurface {
+  const scale = Math.min(1, ANALYSIS_EDGE_LIMIT / Math.max(width, height, 1));
+  const surfaceWidth = Math.max(1, Math.round(width * scale));
+  const surfaceHeight = Math.max(1, Math.round(height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = surfaceWidth;
+  canvas.height = surfaceHeight;
+
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+
+  if (!context) {
+    throw new Error('分析画布初始化失败，请刷新页面后重试');
+  }
+
+  return {
+    canvas,
+    context,
+    width: surfaceWidth,
+    height: surfaceHeight,
+  };
+}
+
+function drawVideoFrameToSurface(video: HTMLVideoElement, surface: AnalysisSurface) {
+  surface.context.clearRect(0, 0, surface.width, surface.height);
+  surface.context.drawImage(video, 0, 0, surface.width, surface.height);
+}
+
+function hasRenderableFrame(video: HTMLVideoElement) {
+  return video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0;
+}
+
+async function waitForRenderableFrame(video: HTMLVideoElement) {
+  if (hasRenderableFrame(video)) {
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => resolve());
+    });
+    return;
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const handleLoadedData = () => {
+      video.removeEventListener('loadeddata', handleLoadedData);
+      video.removeEventListener('error', handleError);
+      requestAnimationFrame(() => resolve());
+    };
+
+    const handleError = () => {
+      video.removeEventListener('loadeddata', handleLoadedData);
+      video.removeEventListener('error', handleError);
+      reject(new Error('视频帧加载失败，请更换编码更稳定的视频'));
+    };
+
+    video.addEventListener('loadeddata', handleLoadedData, { once: true });
+    video.addEventListener('error', handleError, { once: true });
+  });
+}
+
+async function detectLandmarksAtTime(
+  video: HTMLVideoElement,
+  poseLandmarker: any,
+  duration: number,
+  surface: AnalysisSurface,
+  time: number
+) {
+  const safeDuration = Math.max(duration - SEEK_EPSILON_SECONDS, 0);
+
+  for (const offset of SAMPLE_TIME_OFFSETS) {
+    const candidateTime = clamp(time + offset, 0, safeDuration);
+
+    try {
+      await seekVideo(video, candidateTime);
+      await waitForRenderableFrame(video);
+      drawVideoFrameToSurface(video, surface);
+
+      const detection = poseLandmarker.detectForVideo(surface.canvas, Math.max(0, Math.round(candidateTime * 1000)));
+      const landmarks = detection.landmarks?.[0] as Landmark[] | undefined;
+
+      if (landmarks && landmarks.length >= 33) {
+        return {
+          landmarks,
+          timestamp: candidateTime,
+        };
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
 }
 
 async function collectTrackingData(
@@ -361,6 +448,7 @@ async function collectTrackingData(
   width: number,
   height: number,
   duration: number,
+  surface: AnalysisSurface,
   onProgress?: (value: number, stage: string) => void
 ) {
   const attempts = getSamplingAttempts(duration);
@@ -385,28 +473,19 @@ async function collectTrackingData(
           ? startTime
           : startTime + (index / (attempt.sampleCount - 1)) * (endTime - startTime);
 
-      await seekVideo(video, time);
+      const detectedFrame = await detectLandmarksAtTime(video, poseLandmarker, duration, surface, time);
 
-      try {
-        const detection = poseLandmarker.detectForVideo(video, Math.round(time * 1000));
-        const landmarks = detection.landmarks?.[0] as Landmark[] | undefined;
+      if (detectedFrame) {
+        const trackingAnchor = getTrackingAnchor(detectedFrame.landmarks);
+        const wristPoint = toPixel(trackingAnchor.point, width, height);
 
-        if (landmarks && landmarks.length >= 33) {
-          const trackingAnchor = getTrackingAnchor(landmarks);
-          const wristPoint = toPixel(trackingAnchor.point, width, height);
-
-          trajectory.push({
-            x: wristPoint.x,
-            y: wristPoint.y,
-            timestamp: time,
-          });
-          anchorTypes.push(trackingAnchor.anchorType);
-          metricFrames.push(getMetricFrame(landmarks, time));
-        }
-      } catch {
-        completedSteps += 1;
-        onProgress?.(Math.round((completedSteps / totalSteps) * 100), attempt.stageLabel);
-        continue;
+        trajectory.push({
+          x: wristPoint.x,
+          y: wristPoint.y,
+          timestamp: detectedFrame.timestamp,
+        });
+        anchorTypes.push(trackingAnchor.anchorType);
+        metricFrames.push(getMetricFrame(detectedFrame.landmarks, detectedFrame.timestamp));
       }
 
       completedSteps += 1;
@@ -435,6 +514,7 @@ async function createVideoElement(file: File) {
   video.muted = true;
   video.playsInline = true;
   video.preload = 'auto';
+  video.crossOrigin = 'anonymous';
 
   const url = URL.createObjectURL(file);
   video.src = url;
@@ -444,15 +524,40 @@ async function createVideoElement(file: File) {
     video.onerror = () => reject(new Error('视频加载失败，请更换更清晰的训练视频'));
   });
 
+  if (video.readyState < 2) {
+    await new Promise<void>((resolve, reject) => {
+      const handleLoadedData = () => {
+        video.removeEventListener('loadeddata', handleLoadedData);
+        video.removeEventListener('error', handleError);
+        resolve();
+      };
+
+      const handleError = () => {
+        video.removeEventListener('loadeddata', handleLoadedData);
+        video.removeEventListener('error', handleError);
+        reject(new Error('视频首帧加载失败，请更换编码更稳定的视频'));
+      };
+
+      video.addEventListener('loadeddata', handleLoadedData, { once: true });
+      video.addEventListener('error', handleError, { once: true });
+    });
+  }
+
   return { video, url };
 }
 
 async function seekVideo(video: HTMLVideoElement, time: number) {
+  const safeTime = clamp(time, 0, Math.max((video.duration || 0) - SEEK_EPSILON_SECONDS, 0));
+
+  if (Math.abs(video.currentTime - safeTime) < 0.001 && video.readyState >= 2) {
+    return;
+  }
+
   await new Promise<void>((resolve, reject) => {
     const handleSeeked = () => {
       video.removeEventListener('seeked', handleSeeked);
       video.removeEventListener('error', handleError);
-      resolve();
+      requestAnimationFrame(() => resolve());
     };
 
     const handleError = () => {
@@ -463,8 +568,12 @@ async function seekVideo(video: HTMLVideoElement, time: number) {
 
     video.addEventListener('seeked', handleSeeked, { once: true });
     video.addEventListener('error', handleError, { once: true });
-    video.currentTime = time;
+    video.currentTime = safeTime;
   });
+
+  if (video.readyState < 2 || video.videoWidth <= 0 || video.videoHeight <= 0) {
+    throw new Error('当前视频帧解码异常，建议重新导出后再试');
+  }
 }
 
 function getMetricFrame(landmarks: Landmark[], timestamp: number): PoseMetricFrame {
@@ -952,7 +1061,16 @@ export async function analyzeVideoLocally(
     const width = video.videoWidth || 1280;
     const height = video.videoHeight || 720;
     const duration = Math.max(video.duration || 1, 1);
-    const collectedData = await collectTrackingData(video, poseLandmarker, width, height, duration, onProgress);
+    const analysisSurface = createAnalysisSurface(width, height);
+    const collectedData = await collectTrackingData(
+      video,
+      poseLandmarker,
+      width,
+      height,
+      duration,
+      analysisSurface,
+      onProgress
+    );
     const trajectory = collectedData?.trajectory ?? [];
     const metricFrames = collectedData?.metricFrames ?? [];
     const anchorTypes = collectedData?.anchorTypes ?? [];
