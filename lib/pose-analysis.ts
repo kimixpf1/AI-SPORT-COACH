@@ -24,6 +24,7 @@ type TrackingAnchor = {
 
 const MIN_SAMPLE_COUNT = 20;
 const MAX_SAMPLE_COUNT = 36;
+const MIN_VALID_FRAMES = 4;
 
 const EXERCISE_LABELS: Record<ExerciseProfile, string> = {
   auto: '自动识别',
@@ -35,6 +36,13 @@ const EXERCISE_LABELS: Record<ExerciseProfile, string> = {
 };
 
 let poseLandmarkerPromise: Promise<any> | null = null;
+
+type SamplingAttempt = {
+  sampleCount: number;
+  trimStartRatio: number;
+  trimEndRatio: number;
+  stageLabel: string;
+};
 
 function midpoint(a: Landmark, b: Landmark): Landmark {
   return {
@@ -237,41 +245,189 @@ function verticalAngle(a: Landmark, b: Landmark) {
   return Math.abs((Math.atan2(dx, Math.abs(dy) || 0.0001) * 180) / Math.PI);
 }
 
+function getPublicAssetBasePath() {
+  if (typeof window === 'undefined') {
+    return '';
+  }
+
+  const segments = window.location.pathname.split('/').filter(Boolean);
+
+  if (segments[0] === 'AI-SPORT-COACH') {
+    return '/AI-SPORT-COACH';
+  }
+
+  return '';
+}
+
+function getMediaPipeRuntimeCandidates() {
+  const publicBasePath = getPublicAssetBasePath();
+
+  return [
+    'https://unpkg.com/@mediapipe/tasks-vision@0.10.22/wasm',
+    `${publicBasePath}/mediapipe`,
+    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm',
+  ];
+}
+
+async function createPoseLandmarker(vision: any, fileset: any) {
+  const baseOptions = {
+    modelAssetPath:
+      'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task',
+  };
+
+  try {
+    return await vision.PoseLandmarker.createFromOptions(fileset, {
+      baseOptions: {
+        ...baseOptions,
+        delegate: 'GPU',
+      },
+      runningMode: 'VIDEO',
+      numPoses: 1,
+    });
+  } catch {
+    return vision.PoseLandmarker.createFromOptions(fileset, {
+      baseOptions: {
+        ...baseOptions,
+        delegate: 'CPU',
+      },
+      runningMode: 'VIDEO',
+      numPoses: 1,
+    });
+  }
+}
+
 async function loadPoseLandmarker() {
   if (!poseLandmarkerPromise) {
     poseLandmarkerPromise = (async () => {
       const vision = await import('@mediapipe/tasks-vision');
-      const fileset = await vision.FilesetResolver.forVisionTasks(
-        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm'
-      );
-      const baseOptions = {
-        modelAssetPath:
-          'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task',
-      };
+      let lastError: unknown = null;
 
-      try {
-        return await vision.PoseLandmarker.createFromOptions(fileset, {
-          baseOptions: {
-            ...baseOptions,
-            delegate: 'GPU',
-          },
-          runningMode: 'VIDEO',
-          numPoses: 1,
-        });
-      } catch {
-        return vision.PoseLandmarker.createFromOptions(fileset, {
-          baseOptions: {
-            ...baseOptions,
-            delegate: 'CPU',
-          },
-          runningMode: 'VIDEO',
-          numPoses: 1,
-        });
+      for (const runtimeBasePath of getMediaPipeRuntimeCandidates()) {
+        try {
+          const fileset = await vision.FilesetResolver.forVisionTasks(runtimeBasePath);
+          return await createPoseLandmarker(vision, fileset);
+        } catch (error) {
+          lastError = error;
+        }
       }
-    })();
+
+      throw lastError ?? new Error('MediaPipe 初始化失败');
+    })().catch((error) => {
+      poseLandmarkerPromise = null;
+      throw error instanceof Error
+        ? error
+        : new Error('MediaPipe 初始化失败，请刷新页面后重试');
+    });
   }
 
   return poseLandmarkerPromise;
+}
+
+function getSamplingAttempts(duration: number): SamplingAttempt[] {
+  const baseSampleCount = getSampleCount(duration);
+
+  return [
+    {
+      sampleCount: baseSampleCount,
+      trimStartRatio: 0,
+      trimEndRatio: 0,
+      stageLabel: '正在进行多角度鲁棒识别',
+    },
+    {
+      sampleCount: clamp(Math.round(baseSampleCount * 1.7), MIN_SAMPLE_COUNT + 6, 54),
+      trimStartRatio: 0.04,
+      trimEndRatio: 0.04,
+      stageLabel: '正在补充抽帧，提高复杂视频识别率',
+    },
+    {
+      sampleCount: clamp(Math.round(baseSampleCount * 2.2), MIN_SAMPLE_COUNT + 10, 66),
+      trimStartRatio: 0.08,
+      trimEndRatio: 0.08,
+      stageLabel: '正在进行低质视频兜底识别',
+    },
+  ];
+}
+
+function getAttemptTimeRange(duration: number, attempt: SamplingAttempt) {
+  const startTime = clamp(duration * attempt.trimStartRatio, 0, Math.max(duration - 0.2, 0));
+  const endTime = clamp(duration * (1 - attempt.trimEndRatio), startTime + 0.2, duration);
+
+  return { startTime, endTime };
+}
+
+async function collectTrackingData(
+  video: HTMLVideoElement,
+  poseLandmarker: any,
+  width: number,
+  height: number,
+  duration: number,
+  onProgress?: (value: number, stage: string) => void
+) {
+  const attempts = getSamplingAttempts(duration);
+  const totalSteps = attempts.reduce((sum, attempt) => sum + attempt.sampleCount, 0);
+  let completedSteps = 0;
+  let bestAttempt: {
+    trajectory: TrackingPoint[];
+    metricFrames: PoseMetricFrame[];
+    anchorTypes: TrackingAnchor['anchorType'][];
+    sampleCount: number;
+  } | null = null;
+
+  for (const attempt of attempts) {
+    const trajectory: TrackingPoint[] = [];
+    const metricFrames: PoseMetricFrame[] = [];
+    const anchorTypes: TrackingAnchor['anchorType'][] = [];
+    const { startTime, endTime } = getAttemptTimeRange(duration, attempt);
+
+    for (let index = 0; index < attempt.sampleCount; index += 1) {
+      const time =
+        attempt.sampleCount === 1
+          ? startTime
+          : startTime + (index / (attempt.sampleCount - 1)) * (endTime - startTime);
+
+      await seekVideo(video, time);
+
+      try {
+        const detection = poseLandmarker.detectForVideo(video, Math.round(time * 1000));
+        const landmarks = detection.landmarks?.[0] as Landmark[] | undefined;
+
+        if (landmarks && landmarks.length >= 33) {
+          const trackingAnchor = getTrackingAnchor(landmarks);
+          const wristPoint = toPixel(trackingAnchor.point, width, height);
+
+          trajectory.push({
+            x: wristPoint.x,
+            y: wristPoint.y,
+            timestamp: time,
+          });
+          anchorTypes.push(trackingAnchor.anchorType);
+          metricFrames.push(getMetricFrame(landmarks, time));
+        }
+      } catch {
+        completedSteps += 1;
+        onProgress?.(Math.round((completedSteps / totalSteps) * 100), attempt.stageLabel);
+        continue;
+      }
+
+      completedSteps += 1;
+      onProgress?.(Math.round((completedSteps / totalSteps) * 100), attempt.stageLabel);
+    }
+
+    if (!bestAttempt || metricFrames.length > bestAttempt.metricFrames.length) {
+      bestAttempt = {
+        trajectory,
+        metricFrames,
+        anchorTypes,
+        sampleCount: attempt.sampleCount,
+      };
+    }
+
+    if (metricFrames.length >= MIN_VALID_FRAMES) {
+      return bestAttempt;
+    }
+  }
+
+  return bestAttempt;
 }
 
 async function createVideoElement(file: File) {
@@ -796,38 +952,16 @@ export async function analyzeVideoLocally(
     const width = video.videoWidth || 1280;
     const height = video.videoHeight || 720;
     const duration = Math.max(video.duration || 1, 1);
-    const sampleCount = getSampleCount(duration);
-    const trajectory: TrackingPoint[] = [];
-    const metricFrames: PoseMetricFrame[] = [];
-    const anchorTypes: TrackingAnchor['anchorType'][] = [];
+    const collectedData = await collectTrackingData(video, poseLandmarker, width, height, duration, onProgress);
+    const trajectory = collectedData?.trajectory ?? [];
+    const metricFrames = collectedData?.metricFrames ?? [];
+    const anchorTypes = collectedData?.anchorTypes ?? [];
+    const sampleCount = collectedData?.sampleCount ?? getSampleCount(duration);
 
-    for (let index = 0; index < sampleCount; index += 1) {
-      const time = sampleCount === 1 ? 0 : (index / (sampleCount - 1)) * duration;
-      await seekVideo(video, time);
-
-      const detection = poseLandmarker.detectForVideo(video, Math.round(time * 1000));
-      const landmarks = detection.landmarks?.[0] as Landmark[] | undefined;
-      onProgress?.(Math.round(((index + 1) / sampleCount) * 100), '正在进行多角度鲁棒识别');
-
-      if (!landmarks || landmarks.length < 33) {
-        continue;
-      }
-
-      const trackingAnchor = getTrackingAnchor(landmarks);
-      const wristPoint = toPixel(trackingAnchor.point, width, height);
-
-      trajectory.push({
-        x: wristPoint.x,
-        y: wristPoint.y,
-        timestamp: time,
-      });
-      anchorTypes.push(trackingAnchor.anchorType);
-
-      metricFrames.push(getMetricFrame(landmarks, time));
-    }
-
-    if (trajectory.length < 4 || metricFrames.length < 4) {
-      throw new Error('当前视频里可稳定识别的姿态帧仍然太少，建议尽量保证全身入镜、减少遮挡，并让动作主体更靠近画面中心。');
+    if (trajectory.length < MIN_VALID_FRAMES || metricFrames.length < MIN_VALID_FRAMES) {
+      throw new Error(
+        '当前视频已完成多轮兜底识别，但可稳定识别的姿态帧仍然偏少。请优先保证全身入镜、减少遮挡和逆光；如果是后方拍摄，尽量让头、髋、膝、脚都保持在同一画面内。'
+      );
     }
 
     const velocityData = buildVelocityData(trajectory);

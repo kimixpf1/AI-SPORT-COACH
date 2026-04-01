@@ -120,7 +120,7 @@ export default function VideoTracker({
 
   return (
     <div className="space-y-4">
-      <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-black">
+      <div className="relative overflow-hidden rounded-[26px] border border-white/10 bg-black shadow-[0_18px_50px_rgba(2,6,23,0.45)]">
         <video
           ref={videoRef}
           src={videoUrl}
@@ -134,7 +134,7 @@ export default function VideoTracker({
         />
 
         {analyzing && (
-          <div className="absolute inset-x-4 bottom-4 rounded-2xl border border-white/10 bg-slate-950/85 px-4 py-3 backdrop-blur">
+          <div className="absolute inset-x-4 bottom-4 rounded-[22px] border border-white/10 bg-slate-950/85 px-4 py-3 backdrop-blur">
             <div className="flex items-center justify-between text-xs text-slate-200 sm:text-sm">
               <span>{stageLabel}</span>
               <span>{progress}%</span>
@@ -149,33 +149,32 @@ export default function VideoTracker({
         )}
       </div>
 
-      {summary && (
+        <div className="grid grid-cols-2 gap-3 rounded-[24px] border border-white/10 bg-slate-950/70 p-4 lg:grid-cols-3 xl:grid-cols-6">
         <div className="grid grid-cols-2 gap-3 rounded-2xl border border-white/10 bg-slate-950/70 p-4 lg:grid-cols-3 xl:grid-cols-6">
-          <div>
+            <p className="text-xs uppercase tracking-[0.16em] text-slate-500">轨迹标签</p>
             <p className="text-xs text-slate-500">轨迹标签</p>
             <p className="mt-1 text-sm text-slate-200">{summary.label}</p>
           </div>
-          <div>
+            <p className="text-xs uppercase tracking-[0.16em] text-slate-500">机位判断</p>
             <p className="text-xs text-slate-500">机位判断</p>
             <p className="mt-1 text-sm text-slate-200">{summary.angle}</p>
           </div>
-          <div>
+            <p className="text-xs uppercase tracking-[0.16em] text-slate-500">识别可信度</p>
             <p className="text-xs text-slate-500">识别可信度</p>
             <p className="mt-1 text-sm text-slate-200">{summary.confidence}</p>
           </div>
-          <div>
+            <p className="text-xs uppercase tracking-[0.16em] text-slate-500">轨迹点数</p>
             <p className="text-xs text-slate-500">轨迹点数</p>
             <p className="mt-1 text-sm text-slate-200">{summary.points}</p>
           </div>
-          <div>
+            <p className="text-xs uppercase tracking-[0.16em] text-slate-500">平均速度</p>
             <p className="text-xs text-slate-500">平均速度</p>
             <p className="mt-1 text-sm text-slate-200">{summary.averageVelocity} px/s</p>
           </div>
-          <div>
+            <p className="text-xs uppercase tracking-[0.16em] text-slate-500">峰值速度</p>
             <p className="text-xs text-slate-500">峰值速度</p>
             <p className="mt-1 text-sm text-slate-200">{summary.peakVelocity} px/s</p>
           </div>
-        </div>
       )}
     </div>
   );

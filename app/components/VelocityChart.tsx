@@ -47,9 +47,10 @@ export default function VelocityChart({ data, currentTime = 0 }: VelocityChartPr
   }, [chartData]);
 
   return (
-    <div className="rounded-3xl border border-white/10 bg-slate-900/80 p-5 shadow-xl shadow-black/20">
+    <div className="rounded-[30px] border border-white/10 bg-slate-900/80 p-5 shadow-[0_20px_70px_rgba(2,6,23,0.35)] backdrop-blur">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
+          <p className="text-xs uppercase tracking-[0.18em] text-cyan-300">Tempo Graph</p>
           <h3 className="text-xl font-semibold text-slate-50">速度与加速度分析</h3>
           <p className="mt-2 text-sm leading-6 text-slate-400">
             结合当前时间线观察发力峰值、节奏切换和减速控制，便于复盘动作的输出窗口。
@@ -57,16 +58,16 @@ export default function VelocityChart({ data, currentTime = 0 }: VelocityChartPr
         </div>
         {summary && (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-center">
-              <p className="text-xs text-slate-500">平均速度</p>
+            <div className="rounded-[22px] border border-white/10 bg-slate-950/70 px-4 py-3 text-center">
+              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">平均速度</p>
               <p className="mt-1 text-sm font-medium text-slate-100">{summary.averageVelocity.toFixed(0)} px/s</p>
             </div>
-            <div className="rounded-2xl border border-cyan-400/20 bg-cyan-500/10 px-4 py-3 text-center">
-              <p className="text-xs text-cyan-200/80">峰值速度</p>
+            <div className="rounded-[22px] border border-cyan-400/20 bg-cyan-500/10 px-4 py-3 text-center">
+              <p className="text-xs uppercase tracking-[0.16em] text-cyan-200/80">峰值速度</p>
               <p className="mt-1 text-sm font-medium text-cyan-100">{summary.peakVelocity.toFixed(0)} px/s</p>
             </div>
-            <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-center">
-              <p className="text-xs text-emerald-200/80">峰值加速度</p>
+            <div className="rounded-[22px] border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-center">
+              <p className="text-xs uppercase tracking-[0.16em] text-emerald-200/80">峰值加速度</p>
               <p className="mt-1 text-sm font-medium text-emerald-100">{summary.peakAcceleration.toFixed(0)} px/s²</p>
             </div>
           </div>
