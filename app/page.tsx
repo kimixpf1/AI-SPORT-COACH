@@ -7,6 +7,7 @@ import { ExerciseProfile, HistoryItem, TrackingData, VideoAnalysisResult } from 
 import { analyzeVideoLocally } from '@/lib/pose-analysis';
 
 const STORAGE_KEY = 'ai-sport-coach-history';
+const VIDEO_INPUT_ID = 'training-video-input';
 
 const exerciseOptions: Array<{ value: ExerciseProfile; label: string }> = [
   { value: 'auto', label: '自动识别' },
@@ -58,6 +59,17 @@ export default function Home() {
   }, [videoUrl]);
 
   const latestHistory = useMemo(() => history.slice(0, 6), [history]);
+
+  const handlePickVideo = () => {
+    const input = fileInputRef.current;
+
+    if (!input || analyzing) {
+      return;
+    }
+
+    input.value = '';
+    input.click();
+  };
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
@@ -198,22 +210,45 @@ export default function Home() {
               </div>
 
               <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_220px]">
-                <label className="rounded-2xl border border-dashed border-cyan-400/30 bg-cyan-400/5 p-4">
+                <div className="rounded-2xl border border-dashed border-cyan-400/30 bg-cyan-400/5 p-4">
                   <span className="mb-3 block text-sm font-medium text-cyan-100">训练视频</span>
                   <input
+                    id={VIDEO_INPUT_ID}
+                    name="training-video"
                     ref={fileInputRef}
                     type="file"
-                    accept="video/*,.mp4,.mov,.avi,.m4v,.webm,.3gp,.hevc"
+                    accept="video/*"
                     onChange={handleFileChange}
-                    className="block w-full text-sm text-slate-300 file:mr-4 file:rounded-full file:border-0 file:bg-cyan-400 file:px-4 file:py-2 file:font-medium file:text-slate-950 hover:file:bg-cyan-300"
+                    className="sr-only"
                   />
-                  <p className="mt-3 text-xs leading-5 text-slate-400">支持手机相册常见视频格式。微信、iPhone、安卓导出的视频只要能被浏览器选中，系统都会优先尝试分析。</p>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-xs leading-5 text-slate-400">
+                      支持手机相册常见视频格式。微信、iPhone、安卓导出的视频只要能被浏览器选中，系统都会优先尝试分析。
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handlePickVideo}
+                      disabled={analyzing}
+                      className="inline-flex min-h-11 items-center justify-center rounded-full bg-cyan-400 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:text-slate-300"
+                    >
+                      选择视频
+                    </button>
+                  </div>
+                  <label
+                    htmlFor={VIDEO_INPUT_ID}
+                    className="mt-4 block cursor-pointer rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-4 text-sm text-slate-300 transition active:scale-[0.99] hover:border-cyan-400/30"
+                  >
+                    <span className="block font-medium text-slate-100">微信端上传入口</span>
+                    <span className="mt-2 block text-xs leading-5 text-slate-400">
+                      如果上面的按钮在微信里没有拉起相册，直接点这里也可以打开视频选择。
+                    </span>
+                  </label>
                   {file && (
                     <p className="mt-3 text-sm text-slate-200">
                       已选择 {file.name} · {(file.size / 1024 / 1024).toFixed(1)} MB
                     </p>
                   )}
-                </label>
+                </div>
 
                 <label className="rounded-2xl border border-white/10 bg-white/5 p-4">
                   <span className="mb-3 block text-sm font-medium text-slate-100">动作类型</span>
@@ -238,7 +273,7 @@ export default function Home() {
                 {[
                   '微信端建议横屏拍摄，镜头离身体 2-4 米，但只要全身大体入镜也可以先分析',
                   '动作开始前预留 1 秒静止画面，低清或复杂背景下识别会更稳',
-                  '侧面、侧前方、正面都可分析；想看路径更准优先侧前方，想看对称性可用正面',
+                  '侧面、侧前方、正面、后方都可分析；想看对称性和膝髋脚对线时，正面或后方更有参考价值',
                 ].map((item) => (
                   <div key={item} className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-slate-300">
                     {item}
