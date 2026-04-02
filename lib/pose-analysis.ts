@@ -28,6 +28,7 @@ const MIN_VALID_FRAMES = 4;
 const ANALYSIS_EDGE_LIMIT = 1280;
 const SEEK_EPSILON_SECONDS = 0.05;
 const SAMPLE_TIME_OFFSETS = [0, -0.04, 0.04, -0.08, 0.08];
+const GRAPH_TIMESTAMP_STEP_MS = 33;
 
 const EXERCISE_LABELS: Record<ExerciseProfile, string> = {
   auto: '自动识别',
@@ -38,7 +39,7 @@ const EXERCISE_LABELS: Record<ExerciseProfile, string> = {
   other: '综合力量动作',
 };
 
-let poseLandmarkerPromise: Promise<any> | null = null;
+let visionRuntimePromise: Promise<{ vision: any; fileset: any }> | null = null;
 
 type SamplingAttempt = {
   sampleCount: number;
@@ -80,6 +81,19 @@ function average(values: number[]) {
   }
 
   return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function median(values: number[]) {
+  if (values.length === 0) {
+    return 0;
+  }
+
+  const sorted = [...values].sort((left, right) => left - right);
+  const middleIndex = Math.floor(sorted.length / 2);
+
+  return sorted.length % 2 === 0
+    ? (sorted[middleIndex - 1] + sorted[middleIndex]) / 2
+    : sorted[middleIndex];
 }
 
 function round(value: number, digits = 1) {
@@ -210,6 +224,10 @@ function getCameraAngleLabel(profile: CameraProfile) {
   return '正面或接近正面';
 }
 
+function isSagittalAngleReliable(profile: CameraProfile) {
+  return profile === 'side' || profile === 'front_diagonal';
+}
+
 function getConfidenceLabel(score: number) {
   if (score >= 0.8) return '高可信度';
   if (score >= 0.62) return '中高可信度';
@@ -293,16 +311,19 @@ async function createPoseLandmarker(vision: any, fileset: any) {
   });
 }
 
-async function loadPoseLandmarker() {
-  if (!poseLandmarkerPromise) {
-    poseLandmarkerPromise = (async () => {
+async function loadVisionRuntime() {
+  if (!visionRuntimePromise) {
+    visionRuntimePromise = (async () => {
       const vision = await import('@mediapipe/tasks-vision');
       let lastError: unknown = null;
 
       for (const runtimeBasePath of getMediaPipeRuntimeCandidates()) {
         try {
           const fileset = await vision.FilesetResolver.forVisionTasks(runtimeBasePath);
-          return await createPoseLandmarker(vision, fileset);
+          return {
+            vision,
+            fileset,
+          };
         } catch (error) {
           lastError = error;
         }
@@ -310,14 +331,19 @@ async function loadPoseLandmarker() {
 
       throw lastError ?? new Error('MediaPipe 初始化失败');
     })().catch((error) => {
-      poseLandmarkerPromise = null;
+      visionRuntimePromise = null;
       throw error instanceof Error
         ? error
         : new Error('MediaPipe 初始化失败，请刷新页面后重试');
     });
   }
 
-  return poseLandmarkerPromise;
+  return visionRuntimePromise;
+}
+
+async function loadPoseLandmarker() {
+  const { vision, fileset } = await loadVisionRuntime();
+  return createPoseLandmarker(vision, fileset);
 }
 
 function getSamplingAttempts(duration: number): SamplingAttempt[] {
@@ -415,9 +441,11 @@ async function detectLandmarksAtTime(
   poseLandmarker: any,
   duration: number,
   surface: AnalysisSurface,
-  time: number
+  time: number,
+  graphTimestampMs: number
 ) {
   const safeDuration = Math.max(duration - SEEK_EPSILON_SECONDS, 0);
+  let nextGraphTimestampMs = Math.max(graphTimestampMs, GRAPH_TIMESTAMP_STEP_MS);
 
   for (const offset of SAMPLE_TIME_OFFSETS) {
     const candidateTime = clamp(time + offset, 0, safeDuration);
@@ -427,13 +455,17 @@ async function detectLandmarksAtTime(
       await waitForRenderableFrame(video);
       drawVideoFrameToSurface(video, surface);
 
-      const detection = poseLandmarker.detectForVideo(surface.canvas, Math.max(0, Math.round(candidateTime * 1000)));
+      const detection = poseLandmarker.detectForVideo(surface.canvas, nextGraphTimestampMs);
+      nextGraphTimestampMs += GRAPH_TIMESTAMP_STEP_MS;
       const landmarks = detection.landmarks?.[0] as Landmark[] | undefined;
 
       if (landmarks && landmarks.length >= 33) {
         return {
-          landmarks,
-          timestamp: candidateTime,
+          frame: {
+            landmarks,
+            timestamp: candidateTime,
+          },
+          nextGraphTimestampMs,
         };
       }
     } catch {
@@ -441,7 +473,10 @@ async function detectLandmarksAtTime(
     }
   }
 
-  return null;
+  return {
+    frame: null,
+    nextGraphTimestampMs,
+  };
 }
 
 async function collectTrackingData(
@@ -456,6 +491,7 @@ async function collectTrackingData(
   const attempts = getSamplingAttempts(duration);
   const totalSteps = attempts.reduce((sum, attempt) => sum + attempt.sampleCount, 0);
   let completedSteps = 0;
+  let graphTimestampMs = GRAPH_TIMESTAMP_STEP_MS;
   let bestAttempt: {
     trajectory: TrackingPoint[];
     metricFrames: PoseMetricFrame[];
@@ -475,7 +511,9 @@ async function collectTrackingData(
           ? startTime
           : startTime + (index / (attempt.sampleCount - 1)) * (endTime - startTime);
 
-      const detectedFrame = await detectLandmarksAtTime(video, poseLandmarker, duration, surface, time);
+      const detectionResult = await detectLandmarksAtTime(video, poseLandmarker, duration, surface, time, graphTimestampMs);
+      graphTimestampMs = detectionResult.nextGraphTimestampMs;
+      const detectedFrame = detectionResult.frame;
 
       if (detectedFrame) {
         const trackingAnchor = getTrackingAnchor(detectedFrame.landmarks);
@@ -755,10 +793,12 @@ function buildCaptureAssessment(
 
   if (cameraProfile === 'front') {
     warnings.push('当前更接近正面视角，左右对称判断更可靠，前后路径解读相对保守。');
+    warnings.push('当前机位不适合精确估计膝角、髋角和躯干前倾，系统会优先输出对称性与重心分布结论。');
   }
 
   if (cameraProfile === 'rear' || cameraProfile === 'rear_diagonal') {
     warnings.push('当前机位更适合复盘髋、膝、踝对齐和左右侧发力差异，前后路径结论会偏保守。');
+    warnings.push('当前机位不适合精确估计深蹲类动作的膝角和躯干前倾，系统会优先输出后方对线与稳定性结论。');
   }
 
   return {
@@ -810,7 +850,38 @@ function getTrajectoryNarrative(
   return `${exerciseLabel}主轨迹前后摆动较明显，提示发力路径不够集中，器械与身体重心配合还需加强。`;
 }
 
-function getRangeNotes(exercise: ExerciseProfile, minKneeAngle: number, minElbowAngle: number, minHipAngle: number) {
+function getRangeNotes(
+  exercise: ExerciseProfile,
+  minKneeAngle: number,
+  minElbowAngle: number,
+  minHipAngle: number,
+  verticalRange: number,
+  cameraProfile: CameraProfile
+) {
+  if (!isSagittalAngleReliable(cameraProfile)) {
+    if (exercise === 'bench_press') {
+      return verticalRange > 90
+        ? '当前机位不适合精确估计卧推下放深度，系统改按整体位移与稳定性做保守判断；这次幅度基本可用。'
+        : '当前机位不适合精确估计卧推下放深度，系统改按整体位移与稳定性做保守判断；这次幅度偏保守。';
+    }
+
+    if (exercise === 'deadlift') {
+      return verticalRange > 120
+        ? '当前机位不适合精确估计髋角，系统改按整体位移、节奏与对线做保守判断；起拉幅度基本可用。'
+        : '当前机位不适合精确估计髋角，系统改按整体位移、节奏与对线做保守判断；起拉幅度偏保守。';
+    }
+
+    if (exercise === 'clean') {
+      return verticalRange > 140
+        ? '当前机位不适合精确估计高翻的髋膝夹角，系统改按整体下沉幅度与转换节奏做保守判断；动作幅度基本可用。'
+        : '当前机位不适合精确估计高翻的髋膝夹角，系统改按整体下沉幅度与转换节奏做保守判断；动作幅度偏保守。';
+    }
+
+    return verticalRange > 150
+      ? '当前机位不适合精确估计膝角和躯干前倾，系统改按整体下沉幅度与后方对线做保守判断；这次深度基本可用。'
+      : '当前机位不适合精确估计膝角和躯干前倾，系统改按整体下沉幅度与后方对线做保守判断；这次深度偏保守。';
+  }
+
   if (exercise === 'bench_press') {
     if (minElbowAngle < 80) return '触胸深度和推起幅度都比较充分。';
     if (minElbowAngle < 95) return '卧推幅度基本够用，但仍可进一步稳定下放深度。';
@@ -830,6 +901,62 @@ function getRangeNotes(exercise: ExerciseProfile, minKneeAngle: number, minElbow
   if (minKneeAngle < 95) return '深度较充分，已经接近理想训练深蹲幅度。';
   if (minKneeAngle < 110) return '下蹲深度基本达标，但底部还能更沉稳。';
   return '下蹲深度偏浅，建议优先改善髋踝活动度与底部稳定。';
+}
+
+function getBottomMomentDetail(exercise: ExerciseProfile, deepestFrame: PoseMetricFrame, cameraProfile: CameraProfile) {
+  if (!isSagittalAngleReliable(cameraProfile)) {
+    if (exercise === 'bench_press') {
+      return '这一刻接近本次最低点。当前机位不做精确肘角结论，更适合回看杠铃落点和左右发力是否一致。';
+    }
+
+    if (exercise === 'deadlift') {
+      return '这一刻接近本次起拉准备最低点。当前机位不做精确髋角结论，更适合回看中线、足底压力和起拉顺序。';
+    }
+
+    if (exercise === 'clean') {
+      return '这一刻接近本次下沉最低点。当前机位不做精确髋膝夹角结论，更适合回看转换时的中线稳定和接杠路径。';
+    }
+
+    return '这一刻接近本次下沉最低点。当前机位不做精确膝角结论，更适合回看骨盆、膝盖和双脚是否始终对线。';
+  }
+
+  if (exercise === 'bench_press') {
+    return `下放最深处肘角约 ${round(deepestFrame.elbowAngle, 0)}°，适合回看触胸深度与肩胛稳定。`;
+  }
+
+  if (exercise === 'deadlift') {
+    return `起拉准备阶段髋角最低约 ${round(deepestFrame.hipAngle, 0)}°，可重点观察后链预紧是否充分。`;
+  }
+
+  if (exercise === 'clean') {
+    return `接杠前后膝角最低约 ${round(deepestFrame.kneeAngle, 0)}°，适合重点复盘二次发力到接杠转换。`;
+  }
+
+  return `下蹲最深点膝角约 ${round(deepestFrame.kneeAngle, 0)}°，可以据此回看底部稳定性。`;
+}
+
+function getDeepestMomentLabel(exercise: ExerciseProfile, deepestFrame: PoseMetricFrame, cameraProfile: CameraProfile) {
+  if (!isSagittalAngleReliable(cameraProfile)) {
+    if (exercise === 'bench_press') {
+      return `最低点出现在 ${round(deepestFrame.timestamp)} 秒附近，当前机位以杠铃落点和左右稳定性复盘为主`;
+    }
+
+    if (exercise === 'deadlift') {
+      return `准备最低点出现在 ${round(deepestFrame.timestamp)} 秒附近，当前机位以中线和起拉顺序复盘为主`;
+    }
+
+    return `最低点出现在 ${round(deepestFrame.timestamp)} 秒附近，当前机位以对线和重心稳定性复盘为主`;
+  }
+
+  if (exercise === 'bench_press') {
+    return `下放最深点出现在 ${round(deepestFrame.timestamp)} 秒附近，肘角约 ${round(deepestFrame.elbowAngle, 0)}°`;
+  }
+
+  if (exercise === 'deadlift') {
+    return `起拉准备最低点出现在 ${round(deepestFrame.timestamp)} 秒附近，髋角约 ${round(deepestFrame.hipAngle, 0)}°`;
+  }
+
+  return `最低动作幅度出现在 ${round(deepestFrame.timestamp)} 秒附近，膝角约 ${round(deepestFrame.kneeAngle, 0)}°`;
 }
 
 function buildSuggestions(
@@ -882,7 +1009,7 @@ function buildSuggestions(
     }
   }
 
-  if ((exercise === 'squat' || exercise === 'clean') && avgTorsoLean > 18) {
+  if ((exercise === 'squat' || exercise === 'clean') && isSagittalAngleReliable(cameraProfile) && avgTorsoLean > 18) {
     suggestions.push('深蹲或高翻底部起身时先让胸骨向前上方延展，同时持续踩稳中足，避免髋部先冲起把躯干前倾放大。');
   }
 
@@ -933,8 +1060,10 @@ function buildRisks(exercise: ExerciseProfile, scores: { stability: number; rang
   const avgShoulderTilt = average(metrics.map((frame) => frame.shoulderTilt));
   const avgCenterOffset = average(metrics.map((frame) => frame.centerOffset));
   const avgKneeWidthRatio = average(metrics.map((frame) => frame.kneeWidthRatio));
-  const avgFaceVisibility = average(metrics.map((frame) => frame.faceVisibility));
-  const cameraProfile = inferCameraProfile(average(metrics.map((frame) => frame.viewRatio)), avgFaceVisibility);
+  const cameraProfile = inferCameraProfile(
+    median(metrics.map((frame) => frame.viewRatio)),
+    median(metrics.map((frame) => frame.faceVisibility))
+  );
 
   if (scores.range <= 5) {
     risks.push('动作幅度不足时，容易用代偿完成动作，长期会限制技术形成。');
@@ -952,7 +1081,7 @@ function buildRisks(exercise: ExerciseProfile, scores: { stability: number; rang
     risks.push('后方机位可见膝线向内收趋势时，膝关节和髋外侧稳定结构的压力通常会升高。');
   }
 
-  if ((exercise === 'squat' || exercise === 'deadlift') && avgTorsoLean > 24) {
+  if ((exercise === 'squat' || exercise === 'deadlift') && isSagittalAngleReliable(cameraProfile) && avgTorsoLean > 24) {
     risks.push('躯干前倾偏大时，低背负荷会明显上升。');
   }
 
@@ -1003,7 +1132,8 @@ function buildTrackingHighlights(
   metrics: PoseMetricFrame[],
   velocityData: TrackingData['velocityData'],
   sampleCount: number,
-  detectedFrames: number
+  detectedFrames: number,
+  cameraProfile: CameraProfile
 ): TrackingHighlight[] {
   const deepestFrame = getDeepestFrame(metrics, exercise);
   const peakVelocityPoint = velocityData.reduce(
@@ -1019,19 +1149,11 @@ function buildTrackingHighlights(
     metrics[0]
   );
 
-  const bottomDetailByExercise: Record<Exclude<ExerciseProfile, 'auto'>, string> = {
-    squat: `下蹲最深点膝角约 ${round(deepestFrame.kneeAngle, 0)}°，可以据此回看底部稳定性。`,
-    clean: `接杠前后膝角最低约 ${round(deepestFrame.kneeAngle, 0)}°，适合重点复盘二次发力到接杠转换。`,
-    deadlift: `起拉准备阶段髋角最低约 ${round(deepestFrame.hipAngle, 0)}°，可重点观察后链预紧是否充分。`,
-    bench_press: `下放最深处肘角约 ${round(deepestFrame.elbowAngle, 0)}°，适合回看触胸深度与肩胛稳定。`,
-    other: `动作幅度最低点出现在这一刻，适合结合视频判断底部控制与重心位置。`,
-  };
-
   return [
     {
       title: '最低幅度',
       timestamp: deepestFrame.timestamp,
-      detail: bottomDetailByExercise[exercise === 'auto' ? 'other' : exercise],
+      detail: getBottomMomentDetail(exercise, deepestFrame, cameraProfile),
     },
     {
       title: '峰值速度',
@@ -1046,7 +1168,9 @@ function buildTrackingHighlights(
     {
       title: '姿态稳定',
       timestamp: torsoLeanPeak.timestamp,
-      detail: `最大躯干前倾约 ${round(torsoLeanPeak.torsoLean, 0)}°，本次共识别 ${detectedFrames}/${sampleCount} 帧有效姿态。`,
+      detail: isSagittalAngleReliable(cameraProfile)
+        ? `最大躯干前倾约 ${round(torsoLeanPeak.torsoLean, 0)}°，本次共识别 ${detectedFrames}/${sampleCount} 帧有效姿态。`
+        : `这一刻姿态波动较明显，当前机位不做精确躯干前倾角结论；本次共识别 ${detectedFrames}/${sampleCount} 帧有效姿态。`,
     },
   ];
 }
@@ -1073,8 +1197,8 @@ export async function analyzeVideoLocally(
       analysisSurface,
       onProgress
     );
-    const trajectory = collectedData?.trajectory ?? [];
-    const metricFrames = collectedData?.metricFrames ?? [];
+    const trajectory = [...(collectedData?.trajectory ?? [])].sort((left, right) => left.timestamp - right.timestamp);
+    const metricFrames = [...(collectedData?.metricFrames ?? [])].sort((left, right) => left.timestamp - right.timestamp);
     const anchorTypes = collectedData?.anchorTypes ?? [];
     const sampleCount = collectedData?.sampleCount ?? getSampleCount(duration);
 
@@ -1088,8 +1212,11 @@ export async function analyzeVideoLocally(
     const exercise = selectedExercise === 'auto' ? inferExercise(metricFrames, trajectory) : selectedExercise;
     const exerciseLabel = EXERCISE_LABELS[exercise];
     const captureAssessment = buildCaptureAssessment(metricFrames, sampleCount, width, height);
-    const avgFaceVisibility = average(metricFrames.map((frame) => frame.faceVisibility));
-    const cameraProfile = inferCameraProfile(average(metricFrames.map((frame) => frame.viewRatio)), avgFaceVisibility);
+    const cameraProfile = inferCameraProfile(
+      median(metricFrames.map((frame) => frame.viewRatio)),
+      median(metricFrames.map((frame) => frame.faceVisibility))
+    );
+    const sagittalAngleReliable = isSagittalAngleReliable(cameraProfile);
     const deepestFrame = getDeepestFrame(metricFrames, exercise);
     const minKneeAngle = Math.min(...metricFrames.map((frame) => frame.kneeAngle));
     const minHipAngle = Math.min(...metricFrames.map((frame) => frame.hipAngle));
@@ -1119,17 +1246,19 @@ export async function analyzeVideoLocally(
       10
     );
     const rangeScore = clamp(
-      exercise === 'bench_press'
-        ? 10 - Math.max(0, minElbowAngle - 75) / 9
-        : exercise === 'deadlift'
-          ? 10 - Math.max(0, minHipAngle - 72) / 7
-          : 10 - Math.max(0, minKneeAngle - 90) / 7,
+      !sagittalAngleReliable
+        ? 5.8 + Math.min(verticalRange / 90, 2.2) + captureAssessment.detectedFrameRatio / 100
+        : exercise === 'bench_press'
+          ? 10 - Math.max(0, minElbowAngle - 75) / 9
+          : exercise === 'deadlift'
+            ? 10 - Math.max(0, minHipAngle - 72) / 7
+            : 10 - Math.max(0, minKneeAngle - 90) / 7,
       1,
       10
     );
     const alignmentScore = clamp(
       cameraProfile === 'front'
-        ? 10 - avgShoulderTilt * 125 - avgHipTilt * 130 - avgKneeTrack * 35 - avgCenterOffset * 120 - Math.max(0, avgTorsoLean - 18) / 7
+        ? 10 - avgShoulderTilt * 125 - avgHipTilt * 130 - avgKneeTrack * 35 - avgCenterOffset * 120
         : cameraProfile === 'front_diagonal'
           ? 10 - horizontalDrift / 22 - avgKneeTrack * 38 - avgShoulderTilt * 65 - Math.max(0, avgTorsoLean - 16) / 5.5
           : cameraProfile === 'rear' || cameraProfile === 'rear_diagonal'
@@ -1144,12 +1273,7 @@ export async function analyzeVideoLocally(
       1
     );
     const trajectoryNarrative = getTrajectoryNarrative(horizontalDrift, smoothness, exerciseLabel, cameraProfile);
-    const deepestMomentLabel =
-      exercise === 'bench_press'
-        ? `下放最深点出现在 ${round(deepestFrame.timestamp)} 秒附近，肘角约 ${round(deepestFrame.elbowAngle, 0)}°`
-        : exercise === 'deadlift'
-          ? `起拉准备最低点出现在 ${round(deepestFrame.timestamp)} 秒附近，髋角约 ${round(deepestFrame.hipAngle, 0)}°`
-          : `最低动作幅度出现在 ${round(deepestFrame.timestamp)} 秒附近，膝角约 ${round(deepestFrame.kneeAngle, 0)}°`;
+    const deepestMomentLabel = getDeepestMomentLabel(exercise, deepestFrame, cameraProfile);
     const keyMoments = [
       deepestMomentLabel,
       `最快发力段在 ${round(velocityData.reduce((best, item) => item.velocity > best.velocity ? item : best, velocityData[0]).time)} 秒附近`,
@@ -1177,7 +1301,7 @@ export async function analyzeVideoLocally(
       );
     }
 
-    if (avgTorsoLean > 20) {
+    if (sagittalAngleReliable && avgTorsoLean > 20) {
       postureIssuesAlignment.push('躯干角度波动偏大，说明核心稳定还可以继续加强');
     }
 
@@ -1237,7 +1361,7 @@ export async function analyzeVideoLocally(
         },
         rangeOfMotion: {
           score: round(rangeScore),
-          notes: getRangeNotes(exercise, minKneeAngle, minElbowAngle, minHipAngle),
+          notes: getRangeNotes(exercise, minKneeAngle, minElbowAngle, minHipAngle, verticalRange, cameraProfile),
         },
         bodyAlignment: {
           score: round(alignmentScore),
@@ -1266,7 +1390,7 @@ export async function analyzeVideoLocally(
         sampleCount,
         detectedFrames: metricFrames.length,
         trajectoryLabel: getTrajectoryLabel(exercise, anchorTypes),
-        highlights: buildTrackingHighlights(exercise, metricFrames, velocityData, sampleCount, metricFrames.length),
+        highlights: buildTrackingHighlights(exercise, metricFrames, velocityData, sampleCount, metricFrames.length, cameraProfile),
         metricSummary: {
           peakVelocity,
           peakAcceleration,
@@ -1278,6 +1402,7 @@ export async function analyzeVideoLocally(
       },
     };
   } finally {
+    poseLandmarker.close?.();
     URL.revokeObjectURL(url);
   }
 }
