@@ -50,11 +50,7 @@ export default function VelocityChart({ data, currentTime = 0 }: VelocityChartPr
     <div className="rounded-[30px] border border-white/10 bg-slate-900/80 p-5 shadow-[0_20px_70px_rgba(2,6,23,0.35)] backdrop-blur">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <p className="text-xs uppercase tracking-[0.18em] text-cyan-300">Tempo Graph</p>
           <h3 className="text-xl font-semibold text-slate-50">速度与加速度分析</h3>
-          <p className="mt-2 text-sm leading-6 text-slate-400">
-            结合当前时间线观察发力峰值、节奏切换和减速控制，便于复盘动作的输出窗口。
-          </p>
         </div>
         {summary && (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
