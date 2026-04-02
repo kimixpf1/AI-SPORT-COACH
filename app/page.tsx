@@ -233,6 +233,25 @@ export default function Home() {
     }
   };
 
+  const heroStats = [
+    ['运行模式', 'MediaPipe 本地分析'],
+    ['机位覆盖', '正面 / 侧面 / 侧后方 / 后方'],
+    ['上传状态', file ? '视频已就绪' : '等待导入'],
+    ['当前动作', selectedExerciseLabel],
+  ] as const;
+
+  const intakeTips = [
+    ['01', '已知动作优先手动选择，识别更稳。'],
+    ['02', '动作开始前预留约 1 秒静止画面。'],
+    ['03', '正面看对称性，后方看膝髋脚对线。'],
+  ] as const;
+
+  const workspaceStats = [
+    ['当前动作', result?.exerciseType ?? selectedExerciseLabel],
+    ['分析阶段', analyzing ? '识别中' : result ? '已完成' : '待开始'],
+    ['有效姿态帧', trackingData ? `${trackingData.detectedFrames}/${trackingData.sampleCount}` : '--'],
+  ] as const;
+
   return (
     <div className="min-h-screen overflow-hidden bg-slate-950 text-slate-50">
       <div className="pointer-events-none absolute inset-0">
@@ -241,10 +260,11 @@ export default function Home() {
         <div className="absolute bottom-0 left-1/3 h-72 w-72 rounded-full bg-emerald-500/10 blur-3xl" />
       </div>
 
-      <div className="relative mx-auto flex max-w-[1680px] flex-col gap-6 px-4 py-5 sm:px-6 lg:px-8">
-        <header className="rounded-[32px] border border-white/10 bg-[linear-gradient(135deg,rgba(15,23,42,0.96),rgba(10,16,32,0.94),rgba(29,78,216,0.24))] p-6 shadow-[0_24px_80px_rgba(2,6,23,0.45)] sm:p-7">
-          <div className="space-y-5">
-            <div className="space-y-3">
+      <div className="relative mx-auto flex max-w-[1840px] flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+        <header className="rounded-[32px] border border-white/10 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(8,15,30,0.96),rgba(29,78,216,0.22))] p-6 shadow-[0_24px_80px_rgba(2,6,23,0.45)] sm:p-7">
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(360px,0.9fr)] xl:items-end">
+            <div className="space-y-5">
+              <div className="space-y-3">
               <span className="inline-flex w-fit rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1 text-xs font-medium tracking-[0.18em] text-cyan-200 uppercase">
                 Motion Analysis Studio
               </span>
@@ -252,55 +272,84 @@ export default function Home() {
                 AI 运动教练
               </h1>
               <p className="max-w-5xl text-sm leading-7 text-slate-300 sm:text-base">
-                参考专业动作分析工作台重构界面后，桌面端优先采用清晰的双列大模块布局，手机端保持连续纵向阅读。上传真实训练视频后，系统会输出姿态识别、轨迹复盘、速度节奏和训练建议。
+                桌面端改为更像专业分析工作台的窄控制栏 + 宽画面工作区结构，优先让“导入视频、开始分析、查看结果”在全屏浏览器下一眼可读，手机端则保持连续纵向流程。
               </p>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                {heroStats.map(([label, value]) => (
+                  <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-4 backdrop-blur">
+                    <p className="text-xs uppercase tracking-[0.16em] text-slate-500">{label}</p>
+                    <p className="mt-2 text-sm font-medium text-slate-100 sm:text-base">{value}</p>
+                  </div>
+                ))}
+              </div>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              {[
-                ['运行模式', 'MediaPipe 本地分析'],
-                ['机位覆盖', '正面 / 侧面 / 侧后方 / 后方'],
-                ['上传状态', file ? '视频已就绪' : '等待上传'],
-                ['当前动作', selectedExerciseLabel],
-              ].map(([label, value]) => (
-                <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-4 backdrop-blur">
-                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">{label}</p>
-                  <p className="mt-2 text-sm font-medium text-slate-100 sm:text-base">{value}</p>
+            <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-1">
+              <div className="rounded-[28px] border border-cyan-400/20 bg-cyan-400/10 p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.18em] text-cyan-200">Desktop Focus</p>
+                    <p className="mt-2 text-lg font-semibold text-white">全屏桌面优先保证可读性</p>
+                  </div>
+                  <div className="rounded-full border border-cyan-300/20 bg-slate-950/40 px-3 py-1 text-xs text-cyan-100">
+                    工作台模式
+                  </div>
                 </div>
-              ))}
+                <p className="mt-3 text-sm leading-6 text-cyan-50/85">
+                  左侧只保留导入、动作选择和分析控制，右侧集中展示视频、轨迹、图表和建议，减少大屏下无意义留白。
+                </p>
+              </div>
+
+              <div className="rounded-[28px] border border-white/10 bg-slate-950/60 p-5">
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Workflow</p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
+                  {[
+                    ['导入视频', '支持微信、手机相册与电脑本地视频。'],
+                    ['开始分析', '先做姿态识别，再生成轨迹和速度结论。'],
+                    ['查看建议', '直接复盘评分、问题点和纠正方向。'],
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+                      <p className="text-sm font-medium text-slate-100">{label}</p>
+                      <p className="mt-2 text-xs leading-5 text-slate-400">{value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         </header>
 
-        <div className="grid gap-6 2xl:grid-cols-2">
-          <section className="space-y-6">
+        <div className="grid items-start gap-6 xl:grid-cols-[380px_minmax(0,1fr)] 2xl:grid-cols-[420px_minmax(0,1fr)]">
+          <section className="space-y-6 xl:sticky xl:top-5">
             <div className="rounded-[30px] border border-white/10 bg-slate-900/80 p-5 shadow-[0_20px_70px_rgba(2,6,23,0.35)] backdrop-blur">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <p className="text-xs uppercase tracking-[0.18em] text-cyan-300">Control Deck</p>
                   <h2 className="mt-2 text-2xl font-semibold text-white">上传与分析</h2>
                   <p className="mt-2 text-sm leading-6 text-slate-400">
-                    优先保证真实视频可上传、可识别、可复盘。当前针对微信端、低清视频、多机位视频都提供了兜底策略。
+                    左侧只保留最常用控制，避免全屏桌面端按钮过散、文案过长。导入视频后即可直接开始姿态分析。
                   </p>
                 </div>
                 <button
                   onClick={() => setShowHistory((value) => !value)}
                   className="inline-flex items-center justify-center whitespace-nowrap rounded-full border border-white/15 bg-white/[0.03] px-4 py-2 text-sm text-slate-200 transition hover:border-cyan-400/40 hover:bg-white/[0.06]"
                 >
-                  {showHistory ? '收起历史' : '查看历史'}
+                  {showHistory ? '收起记录' : '最近记录'}
                 </button>
               </div>
 
               <div className="mt-5 rounded-[28px] border border-cyan-400/25 bg-gradient-to-br from-cyan-400/10 via-slate-950/70 to-slate-950/90 p-4">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="text-sm font-medium text-cyan-100">训练视频</p>
+                    <p className="text-sm font-medium text-cyan-100">导入训练视频</p>
                     <p className="mt-2 text-xs leading-5 text-slate-400">
-                      支持手机相册常见视频格式。微信、iPhone、安卓与电脑本地视频都会先尝试本地分析。
+                      支持微信、iPhone、安卓与电脑本地视频，默认直接在浏览器内完成识别与复盘。
                     </p>
                   </div>
                   <div className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs text-cyan-100">
-                    本地解析
+                    浏览器本地分析
                   </div>
                 </div>
 
@@ -321,21 +370,27 @@ export default function Home() {
                     disabled={analyzing}
                     className="inline-flex min-h-12 items-center justify-center whitespace-nowrap rounded-2xl bg-cyan-400 px-4 py-3 text-sm font-semibold text-slate-950 shadow-[0_12px_30px_rgba(34,211,238,0.28)] transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300"
                   >
-                    选择视频
+                    导入训练视频
                   </button>
                   <label
                     htmlFor={VIDEO_INPUT_ID}
                     className="flex min-h-12 cursor-pointer items-center justify-center whitespace-nowrap rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm font-medium text-slate-200 transition hover:border-cyan-400/30 hover:bg-slate-950"
                   >
-                    微信端上传入口
+                    微信快速上传
                   </label>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
+                  <span className="rounded-full border border-white/10 bg-slate-950/60 px-3 py-1">建议全身尽量入镜</span>
+                  <span className="rounded-full border border-white/10 bg-slate-950/60 px-3 py-1">支持后方深蹲视频</span>
+                  <span className="rounded-full border border-white/10 bg-slate-950/60 px-3 py-1">微信内也可直接导入</span>
                 </div>
 
                 <div className="mt-4 rounded-2xl border border-white/10 bg-slate-950/70 p-4">
                   {file ? (
                     <div className="space-y-2">
                       <p className="text-sm font-medium text-slate-100">{file.name}</p>
-                      <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="grid gap-3 sm:grid-cols-3">
                         <div>
                           <p className="text-xs text-slate-500">文件大小</p>
                           <p className="mt-1 text-sm text-slate-200">{(file.size / 1024 / 1024).toFixed(1)} MB</p>
@@ -344,13 +399,17 @@ export default function Home() {
                           <p className="text-xs text-slate-500">目标动作</p>
                           <p className="mt-1 text-sm text-slate-200">{selectedExerciseLabel}</p>
                         </div>
+                        <div>
+                          <p className="text-xs text-slate-500">当前状态</p>
+                          <p className="mt-1 text-sm text-slate-200">{analyzing ? '分析中' : '待开始'}</p>
+                        </div>
                       </div>
                     </div>
                   ) : (
                     <div>
                       <p className="text-sm font-medium text-slate-100">等待载入训练视频</p>
                       <p className="mt-2 text-xs leading-5 text-slate-400">
-                        建议预留完整动作、全身尽量入镜；后方深蹲视频也可以直接上传，不需要先换机位。
+                        导入一段完整训练视频后，左侧直接选择动作并开始分析，右侧会同步显示预览、轨迹和图表。
                       </p>
                     </div>
                   )}
@@ -375,13 +434,12 @@ export default function Home() {
                   </select>
                 </label>
                 <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
-                  {[
-                    '已知动作时优先手动选择，识别稳定性更高。',
-                    '动作开始前预留约 1 秒静止画面，复杂背景下更容易锁定人体。',
-                    '正面更适合看对称性，后方更适合看膝髋脚对线和左右偏移。',
-                  ].map((item) => (
-                    <div key={item} className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm leading-6 text-slate-300">
-                      {item}
+                  {intakeTips.map(([index, item]) => (
+                    <div key={item} className="flex gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm leading-6 text-slate-300">
+                      <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-cyan-400/15 text-[11px] font-semibold text-cyan-200">
+                        {index}
+                      </span>
+                      <div>{item}</div>
                     </div>
                   ))}
                 </div>
@@ -393,13 +451,17 @@ export default function Home() {
                   disabled={analyzing}
                   className="w-full whitespace-nowrap rounded-[22px] bg-gradient-to-r from-cyan-400 via-sky-400 to-indigo-400 px-4 py-3.5 text-base font-semibold text-slate-950 shadow-[0_18px_45px_rgba(34,211,238,0.25)] transition hover:translate-y-[-1px] hover:from-cyan-300 hover:to-indigo-300 disabled:cursor-not-allowed disabled:from-slate-700 disabled:via-slate-700 disabled:to-slate-700 disabled:text-slate-300"
                 >
-                  {analyzing ? '正在分析动作视频…' : '开始本地分析'}
+                  {analyzing ? '正在分析视频…' : '开始姿态分析'}
                 </button>
 
                 <div className="rounded-[22px] border border-white/10 bg-slate-950/80 p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <span className="text-sm font-medium text-slate-200">分析进度</span>
+                    <span className="shrink-0 text-sm text-slate-300">{analysisProgress}%</span>
+                  </div>
                   <div className="flex items-center justify-between gap-3 text-sm text-slate-300">
                     <span className="truncate">{analysisStage}</span>
-                    <span className="shrink-0">{analysisProgress}%</span>
+                    <span className="shrink-0">{analyzing ? '处理中' : '等待开始'}</span>
                   </div>
                   <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
                     <div
@@ -475,15 +537,11 @@ export default function Home() {
                   <p className="text-xs uppercase tracking-[0.18em] text-emerald-300">Analysis Workspace</p>
                   <h2 className="mt-2 text-2xl font-semibold text-white">视频工作台</h2>
                   <p className="mt-2 text-sm leading-6 text-slate-400">
-                    全屏桌面端优先把原视频、轨迹叠加、速度节奏和姿态结论拆成清晰模块，避免出现用途不明的大块留白。
+                    右侧工作区优先放大视频与结果，减少全屏桌面端左右均分造成的拥挤感，让上传后第一眼就能看到关键复盘内容。
                   </p>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-3">
-                  {[
-                    ['当前动作', result?.exerciseType ?? selectedExerciseLabel],
-                    ['分析阶段', analyzing ? '识别中' : result ? '已完成' : '待开始'],
-                    ['有效姿态帧', trackingData ? `${trackingData.detectedFrames}/${trackingData.sampleCount}` : '--'],
-                  ].map(([label, value]) => (
+                  {workspaceStats.map(([label, value]) => (
                     <div key={label} className="rounded-2xl border border-white/10 bg-slate-950/65 px-4 py-3">
                       <p className="text-xs text-slate-500">{label}</p>
                       <p className="mt-2 text-sm font-medium text-slate-100">{value}</p>
@@ -503,8 +561,25 @@ export default function Home() {
                     onTimeUpdate={setCurrentTime}
                   />
                 ) : (
-                  <div className="flex h-[340px] items-center justify-center rounded-[26px] border border-dashed border-white/10 bg-slate-950/70 px-6 text-center text-sm text-slate-500">
-                    上传训练视频后，这里会显示原视频、轨迹叠加和时间线同步复盘界面。
+                  <div className="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_320px]">
+                    <div className="flex h-[320px] flex-col items-center justify-center rounded-[26px] border border-dashed border-white/10 bg-slate-950/70 px-6 text-center">
+                      <p className="text-base font-medium text-slate-200">等待视频进入工作台</p>
+                      <p className="mt-3 max-w-xl text-sm leading-6 text-slate-500">
+                        导入训练视频后，这里会显示原视频、轨迹叠加和时间线同步复盘界面，右侧模块会继续补充速度、关键姿态和训练建议。
+                      </p>
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-1">
+                      {[
+                        ['原视频预览', '用于核对动作完整性与机位。'],
+                        ['轨迹叠加', '用于观察主路径、节奏和偏移。'],
+                        ['结果卡片', '用于查看评分、问题点和建议。'],
+                      ].map(([label, value]) => (
+                        <div key={label} className="rounded-[22px] border border-white/10 bg-slate-950/65 p-4">
+                          <p className="text-sm font-medium text-slate-100">{label}</p>
+                          <p className="mt-2 text-xs leading-5 text-slate-400">{value}</p>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
