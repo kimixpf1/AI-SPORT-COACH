@@ -241,7 +241,7 @@ export default function Home() {
         <div className="absolute bottom-0 left-1/3 h-72 w-72 rounded-full bg-emerald-500/10 blur-3xl" />
       </div>
 
-      <div className="relative mx-auto flex max-w-[1480px] flex-col gap-6 px-4 py-5 sm:px-6 lg:px-8">
+      <div className="relative mx-auto flex max-w-[1680px] flex-col gap-6 px-4 py-5 sm:px-6 lg:px-8">
         <header className="rounded-[32px] border border-white/10 bg-[linear-gradient(135deg,rgba(15,23,42,0.96),rgba(10,16,32,0.94),rgba(29,78,216,0.24))] p-6 shadow-[0_24px_80px_rgba(2,6,23,0.45)] sm:p-7">
           <div className="space-y-5">
             <div className="space-y-3">
@@ -272,7 +272,7 @@ export default function Home() {
           </div>
         </header>
 
-        <div className="grid gap-6 xl:grid-cols-[minmax(360px,430px)_minmax(0,1fr)]">
+        <div className="grid gap-6 2xl:grid-cols-2">
           <section className="space-y-6">
             <div className="rounded-[30px] border border-white/10 bg-slate-900/80 p-5 shadow-[0_20px_70px_rgba(2,6,23,0.35)] backdrop-blur">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -473,9 +473,9 @@ export default function Home() {
               <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                 <div>
                   <p className="text-xs uppercase tracking-[0.18em] text-emerald-300">Analysis Workspace</p>
-                  <h2 className="mt-2 text-2xl font-semibold text-white">视频预览与轨迹叠加</h2>
+                  <h2 className="mt-2 text-2xl font-semibold text-white">视频工作台</h2>
                   <p className="mt-2 text-sm leading-6 text-slate-400">
-                    右侧工作台聚焦原视频、轨迹叠加、速度节奏与姿态结论，桌面端保持主副信息分区，手机端自动改为纵向阅读。
+                    全屏桌面端优先把原视频、轨迹叠加、速度节奏和姿态结论拆成清晰模块，避免出现用途不明的大块留白。
                   </p>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-3">
@@ -736,7 +736,7 @@ export default function Home() {
                   </div>
                 </div>
               ) : (
-                <div className="flex min-h-[420px] items-center justify-center rounded-[26px] border border-dashed border-white/10 bg-slate-950/70 px-6 text-center">
+                <div className="flex min-h-[320px] items-center justify-center rounded-[26px] border border-dashed border-white/10 bg-slate-950/70 px-6 text-center">
                   <div>
                     <p className="text-xl font-medium text-slate-200">上传视频后即可开始分析</p>
                     <p className="mt-3 text-sm leading-7 text-slate-400">

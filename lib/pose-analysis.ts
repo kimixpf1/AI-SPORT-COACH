@@ -273,9 +273,11 @@ function getMediaPipeRuntimeCandidates() {
   const publicBasePath = getPublicAssetBasePath();
 
   return [
-    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm',
+    'https://fastly.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm',
+    'https://gcore.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm',
     `${publicBasePath}/mediapipe`,
-    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm',
+    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm',
+    'https://unpkg.com/@mediapipe/tasks-vision@0.10.32/wasm',
   ];
 }
 
