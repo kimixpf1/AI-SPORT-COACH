@@ -19,6 +19,244 @@ const exerciseOptions: Array<{ value: ExerciseProfile; label: string }> = [
   { value: 'other', label: '其他力量动作' },
 ];
 
+const DEFAULT_CAPTURE_ASSESSMENT: TrackingData['captureAssessment'] = {
+  angleLabel: '机位待识别',
+  clarityLabel: '待识别',
+  resolutionLabel: '待识别',
+  confidenceLabel: '待识别',
+  detectedFrameRatio: 0,
+  visibilityScore: 0,
+  coverageScore: 0,
+  warnings: [],
+};
+
+function toStringArray(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function normalizeCaptureAssessment(value: unknown): TrackingData['captureAssessment'] {
+  if (!value || typeof value !== 'object') {
+    return DEFAULT_CAPTURE_ASSESSMENT;
+  }
+
+  const nextValue = value as Partial<TrackingData['captureAssessment']>;
+
+  return {
+    angleLabel: typeof nextValue.angleLabel === 'string' ? nextValue.angleLabel : DEFAULT_CAPTURE_ASSESSMENT.angleLabel,
+    clarityLabel:
+      typeof nextValue.clarityLabel === 'string' ? nextValue.clarityLabel : DEFAULT_CAPTURE_ASSESSMENT.clarityLabel,
+    resolutionLabel:
+      typeof nextValue.resolutionLabel === 'string'
+        ? nextValue.resolutionLabel
+        : DEFAULT_CAPTURE_ASSESSMENT.resolutionLabel,
+    confidenceLabel:
+      typeof nextValue.confidenceLabel === 'string'
+        ? nextValue.confidenceLabel
+        : DEFAULT_CAPTURE_ASSESSMENT.confidenceLabel,
+    detectedFrameRatio:
+      typeof nextValue.detectedFrameRatio === 'number' ? nextValue.detectedFrameRatio : DEFAULT_CAPTURE_ASSESSMENT.detectedFrameRatio,
+    visibilityScore:
+      typeof nextValue.visibilityScore === 'number' ? nextValue.visibilityScore : DEFAULT_CAPTURE_ASSESSMENT.visibilityScore,
+    coverageScore:
+      typeof nextValue.coverageScore === 'number' ? nextValue.coverageScore : DEFAULT_CAPTURE_ASSESSMENT.coverageScore,
+    warnings: toStringArray(nextValue.warnings),
+  };
+}
+
+function normalizeTrackingData(value: unknown): TrackingData | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const nextValue = value as Partial<TrackingData>;
+
+  return {
+    trajectory: Array.isArray(nextValue.trajectory)
+      ? nextValue.trajectory.filter(
+          (item): item is TrackingData['trajectory'][number] =>
+            Boolean(item) &&
+            typeof item === 'object' &&
+            typeof item.x === 'number' &&
+            typeof item.y === 'number' &&
+            typeof item.timestamp === 'number'
+        )
+      : [],
+    velocityData: Array.isArray(nextValue.velocityData)
+      ? nextValue.velocityData.filter(
+          (item): item is TrackingData['velocityData'][number] =>
+            Boolean(item) &&
+            typeof item === 'object' &&
+            typeof item.time === 'number' &&
+            typeof item.velocity === 'number' &&
+            typeof item.acceleration === 'number'
+        )
+      : [],
+    poseMetrics: Array.isArray(nextValue.poseMetrics)
+      ? nextValue.poseMetrics.filter(
+          (item): item is TrackingData['poseMetrics'][number] =>
+            Boolean(item) &&
+            typeof item === 'object' &&
+            typeof item.timestamp === 'number' &&
+            typeof item.kneeAngle === 'number' &&
+            typeof item.hipAngle === 'number' &&
+            typeof item.elbowAngle === 'number' &&
+            typeof item.torsoLean === 'number' &&
+            typeof item.shoulderTilt === 'number' &&
+            typeof item.hipTilt === 'number' &&
+            typeof item.kneeTrackOffset === 'number'
+        )
+      : [],
+    sampleCount: typeof nextValue.sampleCount === 'number' ? nextValue.sampleCount : 0,
+    detectedFrames: typeof nextValue.detectedFrames === 'number' ? nextValue.detectedFrames : 0,
+    trajectoryLabel: typeof nextValue.trajectoryLabel === 'string' ? nextValue.trajectoryLabel : '动作主轨迹',
+    highlights: Array.isArray(nextValue.highlights)
+      ? nextValue.highlights.filter(
+          (item): item is TrackingData['highlights'][number] =>
+            Boolean(item) &&
+            typeof item === 'object' &&
+            typeof item.title === 'string' &&
+            typeof item.detail === 'string' &&
+            typeof item.timestamp === 'number'
+        )
+      : [],
+    metricSummary:
+      nextValue.metricSummary && typeof nextValue.metricSummary === 'object'
+        ? {
+            peakVelocity:
+              typeof nextValue.metricSummary.peakVelocity === 'number' ? nextValue.metricSummary.peakVelocity : 0,
+            peakAcceleration:
+              typeof nextValue.metricSummary.peakAcceleration === 'number' ? nextValue.metricSummary.peakAcceleration : 0,
+            verticalRange:
+              typeof nextValue.metricSummary.verticalRange === 'number' ? nextValue.metricSummary.verticalRange : 0,
+            horizontalDrift:
+              typeof nextValue.metricSummary.horizontalDrift === 'number' ? nextValue.metricSummary.horizontalDrift : 0,
+            averageTorsoLean:
+              typeof nextValue.metricSummary.averageTorsoLean === 'number' ? nextValue.metricSummary.averageTorsoLean : 0,
+          }
+        : {
+            peakVelocity: 0,
+            peakAcceleration: 0,
+            verticalRange: 0,
+            horizontalDrift: 0,
+            averageTorsoLean: 0,
+          },
+    captureAssessment: normalizeCaptureAssessment(nextValue.captureAssessment),
+  };
+}
+
+function normalizeAnalysisResult(value: unknown, fallbackExerciseLabel: string): VideoAnalysisResult {
+  if (!value || typeof value !== 'object') {
+    return {
+      exerciseType: fallbackExerciseLabel,
+      analysisMode: 'MediaPipe 本地分析',
+      captureAssessment: DEFAULT_CAPTURE_ASSESSMENT,
+      trajectoryAnalysis: {
+        barPath: '当前结果结构不完整，建议重新分析或刷新页面后重试。',
+        keyPoints: [],
+        deviations: '本次结果未返回完整轨迹解释。',
+      },
+      velocityAnalysis: {
+        phases: [],
+        criticalMoments: '本次结果未返回完整速度节奏信息。',
+      },
+      postureAnalysis: {
+        stability: { score: 0, issues: [] },
+        rangeOfMotion: { score: 0, notes: '本次结果未返回完整动作幅度结论。' },
+        bodyAlignment: { score: 0, issues: [] },
+      },
+      overallScore: 0,
+      suggestions: ['请刷新页面后重新分析；如果问题重复出现，优先重新上传原始视频。'],
+      strengths: [],
+      risks: [],
+    };
+  }
+
+  const nextValue = value as Partial<VideoAnalysisResult>;
+
+  return {
+    exerciseType: typeof nextValue.exerciseType === 'string' ? nextValue.exerciseType : fallbackExerciseLabel,
+    analysisMode: typeof nextValue.analysisMode === 'string' ? nextValue.analysisMode : 'MediaPipe 本地分析',
+    captureAssessment: normalizeCaptureAssessment(nextValue.captureAssessment),
+    trajectoryAnalysis:
+      nextValue.trajectoryAnalysis && typeof nextValue.trajectoryAnalysis === 'object'
+        ? {
+            barPath:
+              typeof nextValue.trajectoryAnalysis.barPath === 'string'
+                ? nextValue.trajectoryAnalysis.barPath
+                : '本次结果未返回完整轨迹描述。',
+            keyPoints: toStringArray(nextValue.trajectoryAnalysis.keyPoints),
+            deviations:
+              typeof nextValue.trajectoryAnalysis.deviations === 'string'
+                ? nextValue.trajectoryAnalysis.deviations
+                : '本次结果未返回完整偏移说明。',
+          }
+        : {
+            barPath: '本次结果未返回完整轨迹描述。',
+            keyPoints: [],
+            deviations: '本次结果未返回完整偏移说明。',
+          },
+    velocityAnalysis:
+      nextValue.velocityAnalysis && typeof nextValue.velocityAnalysis === 'object'
+        ? {
+            phases: Array.isArray(nextValue.velocityAnalysis.phases)
+              ? nextValue.velocityAnalysis.phases.filter(
+                  (item): item is VideoAnalysisResult['velocityAnalysis']['phases'][number] =>
+                    Boolean(item) &&
+                    typeof item === 'object' &&
+                    typeof item.phase === 'string' &&
+                    typeof item.velocity === 'string' &&
+                    typeof item.acceleration === 'string'
+                )
+              : [],
+            criticalMoments:
+              typeof nextValue.velocityAnalysis.criticalMoments === 'string'
+                ? nextValue.velocityAnalysis.criticalMoments
+                : '本次结果未返回完整节奏结论。',
+          }
+        : {
+            phases: [],
+            criticalMoments: '本次结果未返回完整节奏结论。',
+          },
+    postureAnalysis:
+      nextValue.postureAnalysis && typeof nextValue.postureAnalysis === 'object'
+        ? {
+            stability: {
+              score:
+                typeof nextValue.postureAnalysis.stability?.score === 'number'
+                  ? nextValue.postureAnalysis.stability.score
+                  : 0,
+              issues: toStringArray(nextValue.postureAnalysis.stability?.issues),
+            },
+            rangeOfMotion: {
+              score:
+                typeof nextValue.postureAnalysis.rangeOfMotion?.score === 'number'
+                  ? nextValue.postureAnalysis.rangeOfMotion.score
+                  : 0,
+              notes:
+                typeof nextValue.postureAnalysis.rangeOfMotion?.notes === 'string'
+                  ? nextValue.postureAnalysis.rangeOfMotion.notes
+                  : '本次结果未返回完整动作幅度结论。',
+            },
+            bodyAlignment: {
+              score:
+                typeof nextValue.postureAnalysis.bodyAlignment?.score === 'number'
+                  ? nextValue.postureAnalysis.bodyAlignment.score
+                  : 0,
+              issues: toStringArray(nextValue.postureAnalysis.bodyAlignment?.issues),
+            },
+          }
+        : {
+            stability: { score: 0, issues: [] },
+            rangeOfMotion: { score: 0, notes: '本次结果未返回完整动作幅度结论。' },
+            bodyAlignment: { score: 0, issues: [] },
+          },
+    overallScore: typeof nextValue.overallScore === 'number' ? nextValue.overallScore : 0,
+    suggestions: toStringArray(nextValue.suggestions),
+    strengths: toStringArray(nextValue.strengths),
+    risks: toStringArray(nextValue.risks),
+  };
+}
+
 function normalizeHistoryItem(value: unknown): HistoryItem | null {
   if (!value || typeof value !== 'object') {
     return null;
@@ -209,18 +447,21 @@ export default function Home() {
         }
       );
 
-      setResult(nextResult);
-      setTrackingData(nextTrackingData);
+      const safeResult = normalizeAnalysisResult(nextResult, selectedExerciseLabel);
+      const safeTrackingData = normalizeTrackingData(nextTrackingData);
+
+      setResult(safeResult);
+      setTrackingData(safeTrackingData);
       setShowHistory(true);
 
       persistHistory({
         id: createHistoryId(),
         createdAt: new Date().toISOString(),
         videoFileName: activeFile.name,
-        exerciseType: nextResult.exerciseType,
-        overallScore: nextResult.overallScore,
-        analysisMode: nextResult.analysisMode,
-        suggestions: nextResult.suggestions,
+        exerciseType: safeResult.exerciseType,
+        overallScore: safeResult.overallScore,
+        analysisMode: safeResult.analysisMode,
+        suggestions: safeResult.suggestions,
       });
 
       setAnalysisStage('分析完成，可以复盘图表和建议');
@@ -252,6 +493,11 @@ export default function Home() {
     ['有效姿态帧', trackingData ? `${trackingData.detectedFrames}/${trackingData.sampleCount}` : '--'],
   ] as const;
 
+  const desktopHeaderCards = [
+    ['导入视频', '支持微信、手机相册与电脑本地视频'],
+    ['开始分析', '完成识别后直接查看图表与建议'],
+  ] as const;
+
   return (
     <div className="min-h-screen overflow-hidden bg-slate-950 text-slate-50">
       <div className="pointer-events-none absolute inset-0">
@@ -260,20 +506,30 @@ export default function Home() {
         <div className="absolute bottom-0 left-1/3 h-72 w-72 rounded-full bg-emerald-500/10 blur-3xl" />
       </div>
 
-      <div className="relative mx-auto flex max-w-[1840px] flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
-        <header className="rounded-[32px] border border-white/10 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(8,15,30,0.96),rgba(29,78,216,0.22))] p-6 shadow-[0_24px_80px_rgba(2,6,23,0.45)] sm:p-7">
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(360px,0.9fr)] xl:items-end">
-            <div className="space-y-5">
+      <div className="relative mx-auto flex max-w-[1760px] flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8">
+        <header className="rounded-[28px] border border-white/10 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(8,15,30,0.96),rgba(29,78,216,0.18))] p-5 shadow-[0_24px_80px_rgba(2,6,23,0.45)] sm:p-6">
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1.25fr)_420px] xl:items-center">
+            <div className="space-y-4">
               <div className="space-y-3">
-              <span className="inline-flex w-fit rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1 text-xs font-medium tracking-[0.18em] text-cyan-200 uppercase">
-                Motion Analysis Studio
-              </span>
-              <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl xl:text-[2.65rem]">
-                AI 运动教练
-              </h1>
-              <p className="max-w-5xl text-sm leading-7 text-slate-300 sm:text-base">
-                桌面端改为更像专业分析工作台的窄控制栏 + 宽画面工作区结构，优先让“导入视频、开始分析、查看结果”在全屏浏览器下一眼可读，手机端则保持连续纵向流程。
-              </p>
+                <span className="inline-flex w-fit rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1 text-xs font-medium tracking-[0.18em] text-cyan-200 uppercase">
+                  Motion Analysis Studio
+                </span>
+                <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+                  <div>
+                    <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl">AI 运动教练</h1>
+                    <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
+                      继续把桌面端收紧为更方正的控制台 + 工作区布局，让上传、分析、看结果这条链路在全屏浏览器里更直接。
+                    </p>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2 xl:w-[360px]">
+                    {desktopHeaderCards.map(([label, value]) => (
+                      <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3">
+                        <p className="text-xs uppercase tracking-[0.16em] text-slate-500">{label}</p>
+                        <p className="mt-2 text-sm text-slate-100">{value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
 
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -286,42 +542,24 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-1">
-              <div className="rounded-[28px] border border-cyan-400/20 bg-cyan-400/10 p-5">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.18em] text-cyan-200">Desktop Focus</p>
-                    <p className="mt-2 text-lg font-semibold text-white">全屏桌面优先保证可读性</p>
-                  </div>
-                  <div className="rounded-full border border-cyan-300/20 bg-slate-950/40 px-3 py-1 text-xs text-cyan-100">
-                    工作台模式
-                  </div>
-                </div>
-                <p className="mt-3 text-sm leading-6 text-cyan-50/85">
-                  左侧只保留导入、动作选择和分析控制，右侧集中展示视频、轨迹、图表和建议，减少大屏下无意义留白。
-                </p>
+            <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
+              <div className="rounded-[24px] border border-cyan-400/20 bg-cyan-400/10 px-4 py-4">
+                <p className="text-xs uppercase tracking-[0.18em] text-cyan-200">Desktop Focus</p>
+                <p className="mt-2 text-base font-semibold text-white">左窄右宽，减少顶部空耗</p>
               </div>
-
-              <div className="rounded-[28px] border border-white/10 bg-slate-950/60 p-5">
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Workflow</p>
-                <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
-                  {[
-                    ['导入视频', '支持微信、手机相册与电脑本地视频。'],
-                    ['开始分析', '先做姿态识别，再生成轨迹和速度结论。'],
-                    ['查看建议', '直接复盘评分、问题点和纠正方向。'],
-                  ].map(([label, value]) => (
-                    <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
-                      <p className="text-sm font-medium text-slate-100">{label}</p>
-                      <p className="mt-2 text-xs leading-5 text-slate-400">{value}</p>
-                    </div>
-                  ))}
-                </div>
+              <div className="rounded-[24px] border border-white/10 bg-slate-950/60 px-4 py-4">
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Upload</p>
+                <p className="mt-2 text-sm leading-6 text-slate-200">导入后左侧直接选动作并启动分析。</p>
+              </div>
+              <div className="rounded-[24px] border border-white/10 bg-slate-950/60 px-4 py-4">
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Workspace</p>
+                <p className="mt-2 text-sm leading-6 text-slate-200">右侧优先给视频、轨迹、图表和建议。</p>
               </div>
             </div>
           </div>
         </header>
 
-        <div className="grid items-start gap-6 xl:grid-cols-[380px_minmax(0,1fr)] 2xl:grid-cols-[420px_minmax(0,1fr)]">
+        <div className="grid items-start gap-5 xl:grid-cols-[390px_minmax(0,1fr)] 2xl:grid-cols-[420px_minmax(0,1fr)]">
           <section className="space-y-6 xl:sticky xl:top-5">
             <div className="rounded-[30px] border border-white/10 bg-slate-900/80 p-5 shadow-[0_20px_70px_rgba(2,6,23,0.35)] backdrop-blur">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
